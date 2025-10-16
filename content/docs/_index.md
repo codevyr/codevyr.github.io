@@ -19,7 +19,7 @@ New to Codevyr? Start here:
 
 While we're building out our documentation, you can:
 
-- Try our interactive platform at [ui.codevyr.com](https://ui.codevyr.com)
+- Try our interactive platform at [ui.codevyr.com](https://ui.codevyr.com/?utm_source=codevyr.com&utm_medium=docs&utm_campaign=docs_overview)
 - Explore our open-source code on [GitHub](https://github.com/codevyr/codevyr)
 - Report issues or ask questions in our GitHub repository
 

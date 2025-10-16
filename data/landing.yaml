@@ -38,7 +38,7 @@ hero:
   ctaButton:
     icon: rocket
     btnText: "Try Demo"
-    url: "https://ui.codevyr.com"
+    url: "https://ui.codevyr.com/?utm_source=codevyr.com&utm_medium=landing&utm_campaign=hero_cta"
   cta2Button:
     icon: mail_outline
     btnText: "Join Waitlist"
@@ -86,7 +86,7 @@ featureGrid:
         description: Navigate through your code using an interactive graph interface. Jump seamlessly between related functions, classes, and modules.
         # ctaLink:
         #   text: try navigation
-        #   url: https://ui.codevyr.com
+        #   url: https://ui.codevyr.com/?utm_source=codevyr.com&utm_medium=landing&utm_campaign=feature_try_navigation
       
       - title: Developer-Focused Views
         icon: visibility

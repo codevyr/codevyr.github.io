@@ -19,7 +19,7 @@ Codevyr is a source code analysis platform that uses the Askl query language to 
 
 ### Access the Platform
 
-Visit **[ui.codevyr.com](https://ui.codevyr.com)** to start using Codevyr.
+Visit **[ui.codevyr.com](https://ui.codevyr.com/?utm_source=codevyr.com&utm_medium=docs&utm_campaign=getting_started)** to start using Codevyr.
 
 **Note**: Currently adding new projects is not supported. You can test out Codevyr with pre-existing index of Kubernetes 1.32.3.
 
@@ -161,10 +161,10 @@ A: Remember matching is exact - check spelling and case
 
 ### 📚 Learn More
 
-- Experiment with the interactive platform at [ui.codevyr.com](https://ui.codevyr.com)
+- Experiment with the interactive platform at [ui.codevyr.com](https://ui.codevyr.com/?utm_source=codevyr.com&utm_medium=docs&utm_campaign=getting_started)
 - Try different query patterns on sample projects
 - Use the graph controls to navigate complex results
 
 ---
 
-**[Start querying your code now →](https://ui.codevyr.com)**
+**[Start querying your code now →](https://ui.codevyr.com/?utm_source=codevyr.com&utm_medium=docs&utm_campaign=getting_started)**

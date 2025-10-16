@@ -22,7 +22,7 @@ Thank you for joining our waitlist! We're glad to have you with us as we build C
 
 ### While you wait...
 
-- **Try the Demo**: Explore [ui.codevyr.com](https://ui.codevyr.com) to see Codevyr in action  
+- **Try the Demo**: Explore [ui.codevyr.com](https://ui.codevyr.com/?utm_source=codevyr.com&utm_medium=thanks&utm_campaign=waitlist_followup) to see Codevyr in action
 - **Stay Connected**: Check [archives](https://buttondown.com/codevyr/archive/) for past updates
 
 ---
@@ -31,4 +31,4 @@ Thank you for joining our waitlist! We're glad to have you with us as we build C
 
 **Privacy**: Read our [Privacy Policy](/privacy/) to learn how we handle your data.
 
-→ [**Try the Demo**](https://ui.codevyr.com)
+→ [**Try the Demo**](https://ui.codevyr.com/?utm_source=codevyr.com&utm_medium=thanks&utm_campaign=waitlist_followup)
