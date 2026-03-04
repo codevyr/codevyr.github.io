@@ -60,6 +60,10 @@ mkdir -p "$CODEVYR_WORK/index"
 
 The `--src-path cmd/kubelet` value is relative to `/kubernetes` inside the container. It gives the compiler a concrete entry point, where indexing begins.
 
+By default, the indexer includes only files compiled by the Go compiler. The `--include-git-files` flag adds all files tracked by git, which is useful to include additional files that are not part of the Go build.
+
+The default logging level is `error`. If you want to see more details about the indexing process, add `--log-level debug` to the command. Currently, the indexer prints large amounts of warning messages, due to partial support for Go language features. These warnings can be safely ignored for now.
+
 Copy the host index file into the `askld` container so it can be uploaded:
 
 ```sh
