@@ -64,6 +64,8 @@ By default, the indexer includes only files compiled by the Go compiler. The `--
 
 The default logging level is `error`. If you want to see more details about the indexing process, add `--log-level debug` to the command. Currently, the indexer prints large amounts of warning messages, due to partial support for Go language features. These warnings can be safely ignored for now.
 
+The `generate_index_docker.sh` script disables cgo, because it is not supported in the current indexer.
+
 Copy the host index file into the `askld` container so it can be uploaded:
 
 ```sh
