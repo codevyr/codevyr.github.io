@@ -55,7 +55,7 @@ canonifyURLs = true
     tocSide = "left"
 
 [params.footer]
-    copyright = "© 20025, Codevyr, Maksym Planeta"
+    copyright = "© 2025, Codevyr, Maksym Planeta"
     version = true
 
 [markup]
