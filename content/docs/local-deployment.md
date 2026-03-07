@@ -55,10 +55,10 @@ mkdir -p "$CODEVYR_WORK/index"
 ./bin/generate_index_docker.sh "$CODEVYR_WORK/kubernetes" "$CODEVYR_WORK/index/index-kubernetes.pb" \
   --include-git-files \
   --project kubernetes \
-  --src-path cmd/kubelet
+  --path 'cmd/*'
 ```
 
-The `--src-path cmd/kubelet` value is relative to `/kubernetes` inside the container. It gives the compiler a concrete entry point, where indexing begins.
+The helper script forwards indexer flags as-is, runs the container with the working directory set to the project root, and prefixes `--path` values with `/<project>` automatically. Quote globs like `'cmd/*'` so the host shell does not expand them. Use repeated `--path` flags to index multiple commands in a single index.
 
 By default, the indexer includes only files compiled by the Go compiler. The `--include-git-files` flag adds all files tracked by git, which is useful to include additional files that are not part of the Go build.
 
