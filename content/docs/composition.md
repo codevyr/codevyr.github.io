@@ -52,6 +52,8 @@ Shows what symbols **contain** other symbols.
 
 Returns the module and all functions physically located within it.
 
+> **Performance Note:** Inside `@has { }`, bare type selectors like `@function` use efficient filter mode—they derive from the parent instead of querying all symbols. To explicitly select all functions regardless of context, use `@function(filter="false")`.
+
 ### Find What Module Contains a Function
 
 ```askl

@@ -86,18 +86,80 @@ Askl uses exact, case-sensitive token matching on fully qualified names:
 - `"cli"` will NOT match "click" (exact matching)
 - Matching works on the complete package path + symbol name
 
+## Verb Types
+
+Verbs in Askl fall into three categories:
+
+### Selectors
+
+**Selectors add symbols to the result.** They query the database and produce nodes in the graph.
+
+| Verb | Description |
+|------|-------------|
+| `"name"` / `@select(name="...")` | Select symbols matching a name pattern |
+| `@function("name")` | Select functions matching a name |
+| `@module("name")` | Select modules matching a name |
+| `@file("name")` | Select files matching a name |
+| `@directory("name")` | Select directories matching a name |
+| `@use("label")` | Select symbols from a labeled statement |
+
+Multiple selectors in a statement combine—all must match for a symbol to be included.
+
+### Filters
+
+**Filters constrain the selection without adding symbols.** They remove symbols that don't match criteria.
+
+| Verb | Description |
+|------|-------------|
+| `@ignore("pattern")` | Exclude symbols matching the pattern |
+| `@project("name")` | Only include symbols from a specific project |
+| `@function` (no name) | Only include function symbols |
+| `@module` (no name) | Only include module symbols |
+| `@file` (no name) | Only include file symbols |
+| `@directory` (no name) | Only include directory symbols |
+
+> **Note:** Type selectors like `@function` behave differently based on arguments:
+> - With a name (`@function("foo")`) → **Selector** (queries matching symbols)
+> - Without a name (`@function`) → **Filter** (constrains to type, derives from parent)
+> - Explicit: `@function(filter="false")` forces selector mode
+
+### Modifiers
+
+**Modifiers change context or behavior** for the current statement or scope.
+
+| Verb | Description |
+|------|-------------|
+| `@has` | Use containment relationships instead of references |
+| `@refs` | Use reference relationships (default) |
+| `@preamble` | Apply subsequent verbs to the global scope |
+| `@label("name")` | Label this statement for reuse |
+| `!` (forced) | Force display of relationships |
+| `?` (weak) | Make statement non-constraining |
+
 ## Type Selectors
 
-Type selectors filter results to specific symbol types. They can optionally include a name pattern.
+Type selectors target specific symbol types. As explained above, they act as **selectors** (with a name) or **filters** (without a name).
+
+### Selector vs Filter Behavior
+
+| Syntax | Role | Behavior |
+|--------|------|----------|
+| `@function("name")` | Selector | Queries functions matching "name" |
+| `@function` | Filter | Constrains to functions; derives from parent |
+| `@function(filter="false")` | Selector | Queries ALL functions |
+| `@function(filter="true")` | Filter | Explicit filter (same as bare `@function`) |
+
+**Why this default?** Querying all symbols of a type is expensive. Inside `@has { }` scopes, filter mode is much more efficient—it derives from the parent's contained symbols instead of querying the entire database.
 
 ### @function
 
 Selects function symbols.
 
 ```askl
-@function                    # All functions
 @function("handler")         # Functions matching "handler"
 @function("http.Handler")    # Functions matching both "http" and "Handler"
+@function(filter="false")    # All functions (explicit selector mode)
+@file("main.go") @has { @function }  # Functions in main.go (filter mode, efficient)
 ```
 
 ### @module
@@ -105,9 +167,9 @@ Selects function symbols.
 Selects module/package symbols.
 
 ```askl
-@module                      # All modules
 @module("util")              # Modules matching "util"
 @module("k8s.io/api")        # Modules matching the pattern
+@module(filter="false")      # All modules
 ```
 
 ### @file
@@ -115,8 +177,9 @@ Selects module/package symbols.
 Selects file symbols.
 
 ```askl
-@file                        # All files
 @file("main.go")             # Files matching "main.go"
+@file(filter="false")        # All files
+@directory("/src") @has { @file }  # Files in /src directory
 ```
 
 ### @directory
@@ -124,8 +187,8 @@ Selects file symbols.
 Selects directory symbols.
 
 ```askl
-@directory                   # All directories
 @directory("cmd")            # Directories matching "cmd"
+@directory(filter="false")   # All directories
 ```
 
 ### Default Type Inheritance
