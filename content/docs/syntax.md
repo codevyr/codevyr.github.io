@@ -74,9 +74,11 @@ Shows what symbols **call** or **reference** each other. This is the default rel
 Shows what symbols **contain** other symbols based on source code location.
 
 ```askl
-@module("mypackage") @has { @function }  # Functions contained in module
-@file("main.go") @has { "handler" }      # handler function in main.go
+@mod("mypackage") { @func }   # Functions contained in module
+@file("/main.go") { "handler" }  # handler function in main.go
 ```
+
+> **Note:** Container types (`@dir`, `@file`, `@mod`) implicitly set both containment and reference relationships for their children. You don't need explicit `@has` when using them — `@mod("pkg") { @func }` works directly.
 
 ### 4. Pattern Matching
 
@@ -85,6 +87,15 @@ Askl uses exact, case-sensitive token matching on fully qualified names:
 - `"cli.Run"` matches symbols containing both "cli" and "Run" tokens
 - `"cli"` will NOT match "click" (exact matching)
 - Matching works on the complete package path + symbol name
+
+#### Path-based Matching for Files and Directories
+
+File and directory selectors support two matching modes:
+
+| Argument | Matching | Example |
+|----------|----------|---------|
+| Starts with `/` | Exact path match | `@file("/src/main.go")` |
+| No leading `/` | Compound name match | `@file("main.go")` matches any file with "main" and "go" in its path |
 
 ## Verb Types
 
@@ -97,10 +108,10 @@ Verbs in Askl fall into three categories:
 | Verb | Description |
 |------|-------------|
 | `"name"` / `@select(name="...")` | Select symbols matching a name pattern |
-| `@function("name")` | Select functions matching a name |
-| `@module("name")` | Select modules matching a name |
+| `@func("name")` | Select functions matching a name |
+| `@mod("name")` | Select modules matching a name |
 | `@file("name")` | Select files matching a name |
-| `@directory("name")` | Select directories matching a name |
+| `@dir("name")` | Select directories matching a name |
 | `@use("label")` | Select symbols from a labeled statement |
 
 Multiple selectors in a statement combine—all must match for a symbol to be included.
@@ -113,15 +124,16 @@ Multiple selectors in a statement combine—all must match for a symbol to be in
 |------|-------------|
 | `@ignore("pattern")` | Exclude symbols matching the pattern |
 | `@project("name")` | Only include symbols from a specific project |
-| `@function` (no name) | Only include function symbols |
-| `@module` (no name) | Only include module symbols |
+| `@filter("kind", "value")` | Generic filter (see below) |
+| `@func` (no name) | Only include function symbols |
+| `@mod` (no name) | Only include module symbols |
 | `@file` (no name) | Only include file symbols |
-| `@directory` (no name) | Only include directory symbols |
+| `@dir` (no name) | Only include directory symbols |
 
-> **Note:** Type selectors like `@function` behave differently based on arguments:
-> - With a name (`@function("foo")`) → **Selector** (queries matching symbols)
-> - Without a name (`@function`) → **Filter** (constrains to type, derives from parent)
-> - Explicit: `@function(filter="false")` forces selector mode
+> **Note:** Type selectors like `@func` behave differently based on arguments:
+> - With a name (`@func("foo")`) → **Selector** (queries matching symbols)
+> - Without a name (`@func`) → **Filter** (constrains to type, derives from parent)
+> - Explicit: `@func(filter="false")` forces selector mode
 
 ### Modifiers
 
@@ -131,6 +143,7 @@ Multiple selectors in a statement combine—all must match for a symbol to be in
 |------|-------------|
 | `@has` | Use containment relationships instead of references |
 | `@refs` | Use reference relationships (default) |
+| `@derive(type="...")` | Set relationship type with options |
 | `@preamble` | Apply subsequent verbs to the global scope |
 | `@label("name")` | Label this statement for reuse |
 | `!` (forced) | Force display of relationships |
@@ -144,69 +157,100 @@ Type selectors target specific symbol types. As explained above, they act as **s
 
 | Syntax | Role | Behavior |
 |--------|------|----------|
-| `@function("name")` | Selector | Queries functions matching "name" |
-| `@function` | Filter | Constrains to functions; derives from parent |
-| `@function(filter="false")` | Selector | Queries ALL functions |
-| `@function(filter="true")` | Filter | Explicit filter (same as bare `@function`) |
+| `@func("name")` | Selector | Queries functions matching "name" |
+| `@func` | Filter | Constrains to functions; derives from parent |
+| `@func(filter="false")` | Selector | Queries ALL functions |
+| `@func(filter="true")` | Filter | Explicit filter (same as bare `@func`) |
 
-**Why this default?** Querying all symbols of a type is expensive. Inside `@has { }` scopes, filter mode is much more efficient—it derives from the parent's contained symbols instead of querying the entire database.
+**Why this default?** Querying all symbols of a type is expensive. Inside scopes, filter mode is much more efficient—it derives from the parent's contained symbols instead of querying the entire database.
 
-### @function
+### @func
 
-Selects function symbols.
-
-```askl
-@function("handler")         # Functions matching "handler"
-@function("http.Handler")    # Functions matching both "http" and "Handler"
-@function(filter="false")    # All functions (explicit selector mode)
-@file("main.go") @has { @function }  # Functions in main.go (filter mode, efficient)
-```
-
-### @module
-
-Selects module/package symbols.
+Selects function symbols. Explicitly sets the relationship to **references only** — this overrides any inherited containment from container parents.
 
 ```askl
-@module("util")              # Modules matching "util"
-@module("k8s.io/api")        # Modules matching the pattern
-@module(filter="false")      # All modules
+@func("handler")         # Functions matching "handler"
+@func("http.Handler")    # Functions matching both "http" and "Handler"
+@func(filter="false")    # All functions (explicit selector mode)
+@file("/main.go") { @func }  # Functions in main.go (filter mode)
 ```
+
+### @mod
+
+Selects module/package symbols. Implicitly sets **refs+has** for children, so contained symbols are found without explicit `@has`.
+
+```askl
+@mod("util")              # Modules matching "util"
+@mod("k8s.io/api")        # Modules matching the pattern
+@mod(filter="false")      # All modules
+@mod("pkg") { @func }     # Functions in module (no @has needed)
+```
+
+**Default child types:** modules and functions.
 
 ### @file
 
-Selects file symbols.
+Selects file symbols. Implicitly sets **refs+has** for children.
 
 ```askl
-@file("main.go")             # Files matching "main.go"
-@file(filter="false")        # All files
-@directory("/src") @has { @file }  # Files in /src directory
+@file("main.go")          # Files matching "main.go" (compound match)
+@file("/src/main.go")     # Exact path match
+@file(filter="false")     # All files
+@dir("/src") { @file }    # Files in /src directory
 ```
 
-### @directory
+**Default child types:** functions and modules.
 
-Selects directory symbols.
+### @dir
+
+Selects directory symbols. Implicitly sets **refs+has** for children.
 
 ```askl
-@directory("cmd")            # Directories matching "cmd"
-@directory(filter="false")   # All directories
+@dir("cmd")               # Directories matching "cmd" (compound match)
+@dir("/src")              # Exact path match for /src
+@dir(filter="false")      # All directories
+@dir("/") { @file }       # Files in root directory (no @has needed)
+@dir("/") {}              # Shows directories and files (default child types)
 ```
+
+**Default child types:** directories and files.
 
 ### Default Type Inheritance
 
-When you use a type selector, child scopes inherit sensible defaults:
+Each type selector sets default child types for its scope:
+
+| Type Selector | Default Child Types |
+|---------------|-------------------|
+| `@func` | functions |
+| `@mod` | modules, functions |
+| `@file` | functions, modules |
+| `@dir` | directories, files |
 
 ```askl
-@module("mypackage") {}      # Children include modules AND functions
-@module("mypackage") { @function }  # Children explicitly filtered to functions only
+@mod("mypackage") {}      # Children include modules AND functions
+@mod("mypackage") { @func }  # Children explicitly filtered to functions only
+@dir("/") {}              # Children include directories AND files
 ```
 
-This prevents seeing every symbol type in results and shows only relevant relationships.
+### Container Types and Implicit Relationships
+
+Container types (`@dir`, `@file`, `@mod`) automatically set both containment and reference relationships for their children, with inheritance. This means:
+
+```askl
+# These are equivalent:
+@dir("/src") { @file }
+@dir("/src") @has { @file }
+
+# @func overrides back to refs-only:
+@dir("/") { @func("main") { "bar" } }
+# @func explicitly sets REFS, so "bar" is found via call graph, not containment
+```
 
 ## Relationship Modifiers
 
 ### @refs (References)
 
-Explicitly use reference-based relationships. This is the default, so it's optional.
+Explicitly use reference-based relationships. This is the default. Inherits to all descendants until overridden.
 
 ```askl
 "foo" @refs { "bar" }  # foo calls bar
@@ -216,24 +260,61 @@ Explicitly use reference-based relationships. This is the default, so it's optio
 Use `@refs` to override an inherited `@has`:
 
 ```askl
-@module("pkg") @has { "foo" @refs { "bar" } }
-# Module contains foo, foo CALLS bar (not contains)
+@has { "foo" @refs { "bar" } }
+# foo found via containment, bar found via references
 ```
 
 ### @has (Containment)
 
-Use containment-based relationships.
+Use containment-based relationships. Inherits to all descendants until overridden.
 
 ```askl
-@module("pkg") @has { @function }    # Functions IN the module
-@directory("/src") @has { @file }    # Files IN the directory
+@has { @func }              # Functions contained in parent
+@has { "foo" { "bar" } }   # HAS propagates: bar also found via containment
 ```
 
 Containment is determined by source code byte ranges: if symbol A's range contains symbol B's range, and A's type level is higher than B's, then A contains B.
 
-## Core Verbs
+### @derive (Relationship Configuration)
 
-### @select (Function Selection)
+Advanced relationship modifier with explicit control over type and inheritance.
+
+```askl
+@derive(type="has")                  # Same as @has (inherits by default)
+@derive(type="refs")                 # Same as @refs (inherits by default)
+@derive(type="has,refs")             # Both containment and references
+@derive(type="refs", inherit="false") # REFS for this scope only, children reset to default
+```
+
+**Parameters:**
+- `type`: Comma-separated relationship types (`"has"`, `"refs"`, or `"has,refs"`)
+- `inherit`: Whether children inherit this setting (default: `"true"`)
+
+### Relationship Inheritance
+
+`@has`, `@refs`, and `@derive` all inherit by default — their relationship type propagates to all descendants until explicitly overridden:
+
+```askl
+@has {              # HAS for all descendants
+    "foo" {         # Still uses HAS (inherited)
+        "bar"       # Still uses HAS (inherited)
+    }
+}
+
+@has {              # HAS for descendants
+    "foo" @refs {   # Override to REFS for this scope and below
+        "bar"       # Uses REFS (inherited from @refs override)
+    }
+}
+```
+
+Container type selectors participate in this inheritance:
+- `@func` explicitly sets REFS, overriding any inherited refs+has
+- `@mod`, `@file`, `@dir` set refs+has with inheritance
+
+## Generic Verbs
+
+### @select (Symbol Selection)
 
 Selects symbols whose names match a specific pattern.
 
@@ -253,6 +334,21 @@ Selects symbols whose names match a specific pattern.
 "http.Handler"  # Symbols containing both "http" and "Handler"
 "user.Create"   # Symbols containing both "user" and "Create"
 ```
+
+### @filter (Generic Filter)
+
+A generic filter verb supporting multiple filter kinds.
+
+```askl
+@filter("type", "func")              # Filter to functions (same as bare @func)
+@filter("compound_name", "main")     # Filter by compound name match
+@filter("exact_name", "/src/main.go") # Filter by exact name
+```
+
+**Filter kinds:**
+- `"type"`: Filter by symbol type (`"func"`, `"mod"`, `"file"`, `"dir"`)
+- `"compound_name"`: Filter by compound name pattern (token matching)
+- `"exact_name"`: Filter by exact symbol name
 
 ### @ignore (Symbol Filtering)
 
@@ -343,20 +439,27 @@ References a previously labeled statement.
 ### Module Contents
 
 ```askl
-@module("mypackage") @has { @function }  # All functions in module
+@mod("mypackage") { @func }  # All functions in module
+```
+
+### Directory Contents
+
+```askl
+@dir("/src") { @file }       # All files in /src
+@dir("/src") {}              # Directories and files in /src
 ```
 
 ### Mixed Relationships
 
 ```askl
-@module("pkg") @has { "handler" @refs {{}} }
+@mod("pkg") { "handler" {{}} }
 # Module pkg, functions named "handler" within it, and their call graph
 ```
 
 ### Filter by Project and Type
 
 ```askl
-@project("backend") @module("api") @has { @function("Create") }
+@project("backend") @mod("api") { @func("Create") }
 # Create functions in api module of backend project
 ```
 
