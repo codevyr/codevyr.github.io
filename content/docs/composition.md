@@ -38,26 +38,52 @@ The default relationship type. Shows what symbols **call** or **reference** each
 Shows what symbols **contain** other symbols.
 
 ```askl
-@module("pkg") @has { "handler" }   # handler is IN pkg
-@file("main.go") @has { @function } # Functions IN main.go
+@mod("pkg") @has { "handler" }   # handler is IN pkg
+@file("/main.go") { @func }      # Functions IN main.go (implicit @has from @file)
 ```
+
+## Container Types: Implicit Relationships
+
+Container type selectors (`@dir`, `@file`, `@mod`) automatically set both containment and reference relationships for their children. This means you don't need explicit `@has` when using them:
+
+```askl
+# These are equivalent:
+@mod("pkg") { @func }
+@mod("pkg") @has { @func }
+
+# @dir also sets implicit refs+has:
+@dir("/src") { @file }           # Files in /src (no @has needed)
+@dir("/") {}                     # Shows directories and files
+
+# @func overrides back to refs-only:
+@dir("/") { @func("main") { "bar" } }
+# "bar" found via call graph (REFS), not containment
+```
+
+Each container type also sets default child types:
+
+| Container | Default Child Types |
+|-----------|-------------------|
+| `@dir` | directories, files |
+| `@file` | functions, modules |
+| `@mod` | modules, functions |
 
 ## Practical Examples
 
 ### Find Functions in a Module
 
 ```askl
-@module("api/handlers") @has { @function }
+@mod("api/handlers") { @func }
 ```
 
 Returns the module and all functions physically located within it.
 
-> **Performance Note:** Inside `@has { }`, bare type selectors like `@function` use efficient filter mode—they derive from the parent instead of querying all symbols. To explicitly select all functions regardless of context, use `@function(filter="false")`.
+> **Performance Note:** Inside scopes, bare type selectors like `@func` use efficient filter mode—they derive from the parent instead of querying all symbols. To explicitly select all functions regardless of context, use `@func(filter="false")`.
 
 ### Find What Module Contains a Function
 
 ```askl
-@module @has { "processRequest" }
+@mod { "processRequest" }
 ```
 
 Returns the function "processRequest" and any modules that contain it.
@@ -65,53 +91,58 @@ Returns the function "processRequest" and any modules that contain it.
 ### Mix Containment and References
 
 ```askl
-@module("handlers") @has { "ServeHTTP" @refs {{}} }
+@mod("handlers") { "ServeHTTP" {{}} }
 ```
 
 This query:
 1. Selects the "handlers" module
-2. Finds "ServeHTTP" functions **contained** in that module (`@has`)
-3. Shows the call graph of those functions (`@refs`, two levels deep)
+2. Finds "ServeHTTP" functions **contained** in that module (implicit refs+has from `@mod`)
+3. Shows the call graph of those functions (two levels deep)
 
-### Compare Container vs Reference
+### Compare Container vs Explicit Relationship
 
 ```askl
 # Containment: what functions are IN the module?
-@module("pkg") @has { @function }
+@mod("pkg") { @func }
 
-# References: what functions does the module CALL?
-@module("pkg") @refs { @function }
+# References only: what functions does the module CALL?
+@mod("pkg") @derive(type="refs") { @func }
 ```
 
 These return very different results:
-- `@has` returns functions whose source code is within the module
-- `@refs` returns functions that the module's code references
+- The first uses the implicit refs+has from `@mod` — functions found via containment
+- The second explicitly overrides to refs-only — functions found via call references
 
-## Relationship Scope
+## Relationship Inheritance
 
-The relationship modifier affects the **immediate child scope**:
+`@has`, `@refs`, and `@derive` all inherit by default — their relationship type propagates to all descendants until explicitly overridden.
 
 ```askl
-@module("pkg") @has {     # First child: containment
-    "foo" @refs {         # Second level: references (explicit)
-        "bar"
+@has {              # HAS for all descendants
+    "foo" {         # Still uses HAS (inherited)
+        "bar"       # Still uses HAS (inherited)
+    }
+}
+
+@has {              # HAS for descendants
+    "foo" @refs {   # Override to REFS for this scope and below
+        "bar"       # Uses REFS
     }
 }
 ```
 
-This query:
-1. Module "pkg" **contains** "foo" (`@has`)
-2. "foo" **calls** "bar" (`@refs`)
-3. "bar" doesn't need to be in module "pkg"
+Container type selectors participate in this inheritance:
+- `@func` explicitly sets **REFS**, overriding any inherited refs+has
+- `@mod`, `@file`, `@dir` set **refs+has** with inheritance
 
 ### Nested Containment
 
-Use nested `@has` for multi-level containment:
+Use nested containers for multi-level containment:
 
 ```askl
-@directory("/src") @has {
-    @module @has {
-        @function("handler")
+@dir("/src") {
+    @mod {
+        @func("handler")
     }
 }
 ```
@@ -121,23 +152,7 @@ This finds:
 2. Modules contained in that directory
 3. Functions named "handler" contained in those modules
 
-## Overriding Inherited Relationships
-
-Child scopes inherit the parent's relationship type by default. Use explicit modifiers to override:
-
-```askl
-@module("pkg") @has {     # Children inherit @has
-    "foo" {               # Still uses @has (inherited)
-        "bar"
-    }
-}
-
-@module("pkg") @has {     # Children inherit @has
-    "foo" @refs {         # Override to @refs
-        "bar"
-    }
-}
-```
+No explicit `@has` needed — each container type sets it implicitly.
 
 ## Multi-Instance Symbols
 
@@ -155,7 +170,7 @@ When clicking on such nodes in the UI, a popup shows all instances, allowing you
 Find all handlers in a specific package:
 
 ```askl
-@module("api/v1") @has { @function("Handler") }
+@mod("api/v1") { @func("Handler") }
 ```
 
 ### Code Organization
@@ -163,7 +178,7 @@ Find all handlers in a specific package:
 See what's in a directory:
 
 ```askl
-@directory("/cmd") @has { @module @has { @function("main") } }
+@dir("/cmd") { @mod { @func("main") } }
 ```
 
 ### Dependency Scope
@@ -171,17 +186,17 @@ See what's in a directory:
 Find external dependencies used by a module:
 
 ```askl
-@module("myapp") @has { @function } @refs { @module("external") }
+@mod("myapp") { @func @refs { @mod("external") } }
 ```
 
-This finds functions in "myapp" that reference the "external" module.
+This finds functions in "myapp" that reference the "external" module. Note: `@refs` explicitly overrides the inherited refs+has from `@mod`, so only call references are shown.
 
 ### Refactoring Support
 
 Find functions that should be moved:
 
 ```askl
-@module("utils") @has { @function("http") }
+@mod("utils") { @func("http") }
 ```
 
 If you have HTTP-related functions in a "utils" module, they might belong elsewhere.
