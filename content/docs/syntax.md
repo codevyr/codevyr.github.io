@@ -95,7 +95,20 @@ File and directory selectors support two matching modes:
 | Argument | Matching | Example |
 |----------|----------|---------|
 | Starts with `/` | Exact path match | `@file("/src/main.go")` |
-| No leading `/` | Compound name match | `@file("main.go")` matches any file with "main" and "go" in its path |
+| No leading `/` | Leaf-anchored match | `@dir("kueue")` matches directories **named** "kueue" (last path component) |
+
+By default, `@dir` and `@file` anchor the last token to the end of the path. This means `@dir("kueue")` only matches directories whose name is "kueue", not every directory that happens to have "kueue" somewhere in its path.
+
+For multi-token queries, intermediate tokens match anywhere but the last is still anchored: `@dir("pkg/kueue")` matches directories named "kueue" that have "pkg" somewhere earlier in their path.
+
+To match a token **anywhere** in the path (the old behavior), use `match="contains"`:
+
+```
+@dir("kueue", match="contains")   // matches any directory with "kueue" in its path
+@file("main", match="contains")   // matches any file with "main" in its path
+```
+
+> **Note:** The `match` parameter has no effect when the argument starts with `/` (exact path match always takes precedence). For `@func` and `@mod`, the default is already "contains" matching.
 
 ## Verb Types
 
