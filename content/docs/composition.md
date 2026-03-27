@@ -14,7 +14,8 @@ Symbols are organized in a hierarchy based on their type:
 directory (level 4)
     └── module (level 3)
         └── file (level 2)
-            └── function (level 1)
+            ├── function (level 1)
+            └── type (level 1)
 ```
 
 A higher-level symbol **contains** a lower-level symbol if:
@@ -67,6 +68,7 @@ Each container type also sets default child types:
 | `@dir` | directories, files |
 | `@file` | functions, modules |
 | `@mod` | modules, functions |
+| `@type` | types |
 
 ## Practical Examples
 
