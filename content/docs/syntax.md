@@ -13,7 +13,7 @@ An Askl query consists of **statements** that select and filter code symbols and
 ### Basic Structure
 
 ```askl
-statement1;
+statement1
 statement2 {
     nested_statement
 }
@@ -30,17 +30,32 @@ A **statement** is the fundamental unit of an Askl query. Each statement contain
 
 #### Statement Separation
 
-Use semicolons to separate consecutive statements:
+Newlines separate consecutive statements:
 
 ```askl
-"foo";          # First statement
-"bar"           # Second statement (semicolon optional at end)
+"foo"           # First statement
+"bar"           # Second statement
 ```
 
-Without semicolons, verbs belong to the same statement:
+Semicolons also work as separators (useful for single-line queries):
+
+```askl
+"foo"; "bar"    # Two statements on one line
+```
+
+Without newlines or semicolons, verbs on the same line belong to the same statement:
 
 ```askl
 "foo" "bar"     # Single statement with two selector verbs
+```
+
+A scope `{` must be on the **same line** as its verb to attach:
+
+```askl
+"foo" { "bar" }  # "bar" is inside foo's scope
+
+"foo"
+{ "bar" }        # Two separate statements (scope does NOT attach to "foo")
 ```
 
 ### 2. Symbol Types
@@ -409,14 +424,21 @@ Excludes symbols matching a pattern from current and nested statements.
 
 ### @preamble (Global Configuration)
 
-Applies verbs to the global scope, affecting all subsequent statements.
+Applies verbs to the global scope, affecting all subsequent statements. Use scope syntax `{ }` to group multiple preamble verbs across lines:
 
 ```askl
-@preamble
-@ignore("builtin")
-@ignore("test")
+@preamble {
+    @ignore("builtin")
+    @ignore("test")
+}
 
 "main"  # This and all following queries ignore builtin and test
+```
+
+Single-line syntax also works (all preamble verbs must be on the same line):
+
+```askl
+@preamble @ignore("builtin") @ignore("test")
 ```
 
 ### @project (Project Filter)
@@ -459,14 +481,14 @@ Labels a statement for later reuse with `@use`.
 References a previously labeled statement.
 
 ```askl
-@label("handlers") "handler" {};
+@label("handlers") "handler" {}
 "main" { @use("handlers") }    # Reuse the handlers selection
 ```
 
 **Forced usage:**
 
 ```askl
-@label("handlers") "handler" {};
+@label("handlers") "handler" {}
 "main" { !@use("handlers", forced=true) }  # Force the relationship
 ```
 
@@ -530,7 +552,7 @@ References a previously labeled statement.
 ### Exclude Test Code
 
 ```askl
-@preamble @ignore("test") @ignore("mock");
+@preamble @ignore("test") @ignore("mock")
 "main" {{}}  # Call graph excluding test/mock code
 ```
 
@@ -568,8 +590,8 @@ Every global statement must contain at least one selection verb at some nesting 
 
 **Valid examples:**
 ```askl
-"foo" {};           # Direct selection
-{"foo"};            # Selection in scope
+"foo" {}            # Direct selection
+{"foo"}             # Selection in scope
 {{{"foo"}}}         # Deeply nested selection
 ```
 
