@@ -80,12 +80,12 @@ Find what functions call `cli.Run`:
 
 This shows all functions that call `cli.Run`.
 
-### Filtering with @ignore
+### Filtering with ignore
 
 Remove uninteresting functions from results:
 
 ```askl
-@ignore("builtin")
+ignore("builtin")
 main
 ```
 
@@ -96,16 +96,16 @@ This finds all "main" functions but ignores any with "builtin" in their name.
 Make ignore rules apply to all queries in your session using scope syntax:
 
 ```askl
-@preamble {
-    @ignore("builtin")
-    @ignore("test")
+preamble {
+    ignore("builtin")
+    ignore("test")
 }
 
 main
 cli.Run
 ```
 
-Place `@preamble` with `@ignore` statements at the beginning to filter globally. You can also use single-line syntax: `@preamble @ignore("builtin") @ignore("test")`
+Place `preamble` with `ignore` statements at the beginning to filter globally. You can also use single-line syntax: `preamble ignore("builtin") ignore("test")`
 
 ## Practical Examples
 
@@ -125,13 +125,13 @@ Shows all `main` functions and what they call.
 
 1. Begin with basic function searches: `main`, `init`, `New`
 2. Add scopes gradually to explore dependencies
-3. Use `@ignore` to reduce noise
+3. Use `ignore` to reduce noise
 
 ### 🔍 Effective Filtering
 
 - **Package-level**: `package.Function`
 - **Multiple terms**: `user.Create` (must contain both "user" and "Create")
-- **Ignore patterns**: `@ignore("builtin")` to skip built package
+- **Ignore patterns**: `ignore("builtin")` to skip built package
 
 ### 📊 Reading Results
 
@@ -152,7 +152,7 @@ Once you're comfortable with basic queries:
 ### 🆘 Common Issues
 
 **Q: My query returns too many results**
-A: Add more specific filters or use `@ignore` to reduce noise
+A: Add more specific filters or use `ignore` to reduce noise
 
 **Q: My query returns nothing**
 A: Check if parent functions actually call child functions in scopes
