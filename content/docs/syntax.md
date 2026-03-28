@@ -45,17 +45,18 @@ Without semicolons, verbs belong to the same statement:
 
 ### 2. Symbol Types
 
-Askl supports five symbol types organized in a hierarchy:
+Askl supports six symbol types organized in a hierarchy:
 
 | Type | Level | Description |
 |------|-------|-------------|
 | `function` | 1 | Functions, methods, procedures |
 | `type` | 1 | Structs, interfaces, type declarations |
+| `data` | 1 | Package-level variables, constants |
 | `file` | 2 | Source files |
 | `module` | 3 | Packages, modules, namespaces |
 | `directory` | 4 | Filesystem directories |
 
-Higher-level symbols can **contain** lower-level symbols (e.g., a module contains files, which contain functions). Types and functions share the same level — both are leaf-level symbols inside files and modules.
+Higher-level symbols can **contain** lower-level symbols (e.g., a module contains files, which contain functions). Data, types, and functions share the same level — all are leaf-level symbols inside files and modules.
 
 ### 3. Relationships
 
@@ -124,6 +125,7 @@ Verbs in Askl fall into three categories:
 | `"name"` / `@select(name="...")` | Select symbols matching a name pattern |
 | `@func("name")` | Select functions matching a name |
 | `@type("name")` | Select types matching a name |
+| `@data("name")` | Select data symbols (variables, constants) matching a name |
 | `@mod("name")` | Select modules matching a name |
 | `@file("name")` | Select files matching a name |
 | `@dir("name")` | Select directories matching a name |
@@ -142,6 +144,7 @@ Multiple selectors in a statement combine—all must match for a symbol to be in
 | `@filter("kind", "value")` | Generic filter (see below) |
 | `@func` (no name) | Only include function symbols |
 | `@type` (no name) | Only include type symbols |
+| `@data` (no name) | Only include data symbols |
 | `@mod` (no name) | Only include module symbols |
 | `@file` (no name) | Only include file symbols |
 | `@dir` (no name) | Only include directory symbols |
@@ -205,6 +208,19 @@ Selects type symbols (structs, interfaces, type declarations). Like `@func`, exp
 
 **Default child types:** types.
 
+### @data
+
+Selects data symbols (package-level variables and constants). Like `@func` and `@type`, explicitly sets the relationship to **references only**.
+
+```askl
+@data("Debug")            # Data symbols matching "Debug"
+@data("config.Debug")     # Data symbols matching both "config" and "Debug"
+@data(filter="false")     # All data symbols
+@mod("config") { @data }  # Data symbols in module (filter mode)
+```
+
+**Default child types:** data.
+
 ### @mod
 
 Selects module/package symbols. Implicitly sets **refs+has** for children, so contained symbols are found without explicit `@has`.
@@ -253,6 +269,7 @@ Each type selector sets default child types for its scope:
 |---------------|-------------------|
 | `@func` | functions |
 | `@type` | types |
+| `@data` | data |
 | `@mod` | modules, functions |
 | `@file` | functions, modules |
 | `@dir` | directories, files |
@@ -340,7 +357,7 @@ Advanced relationship modifier with explicit control over type and inheritance.
 ```
 
 Container type selectors participate in this inheritance:
-- `@func` explicitly sets REFS, overriding any inherited refs+has
+- `@func`, `@type`, `@data` explicitly set REFS, overriding any inherited refs+has
 - `@mod`, `@file`, `@dir` set refs+has with inheritance
 
 ## Generic Verbs
@@ -377,7 +394,7 @@ A generic filter verb supporting multiple filter kinds.
 ```
 
 **Filter kinds:**
-- `"type"`: Filter by symbol type (`"func"`, `"mod"`, `"file"`, `"dir"`)
+- `"type"`: Filter by symbol type (`"func"`, `"type"`, `"data"`, `"mod"`, `"file"`, `"dir"`)
 - `"compound_name"`: Filter by compound name pattern (token matching)
 - `"exact_name"`: Filter by exact symbol name
 
@@ -479,6 +496,14 @@ References a previously labeled statement.
 @type("Request")             # Find a type by name
 @type("Request") { @type }   # Types referenced by Request
 @mod("net/http") { @type }   # All types in a module
+```
+
+### Data Queries
+
+```askl
+@data("Debug")               # Find a data symbol by name
+@func("main") { @data }     # Data symbols referenced by main
+@mod("config") { @data }    # All data symbols in a module
 ```
 
 ### Directory Contents
