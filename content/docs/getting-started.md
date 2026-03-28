@@ -93,18 +93,19 @@ This finds all "main" functions but ignores any with "builtin" in their name.
 
 #### Global Ignore (Preamble)
 
-Make ignore rules apply to all queries in your session:
+Make ignore rules apply to all queries in your session using scope syntax:
 
 ```askl
-@preamble
-@ignore("builtin")
-@ignore("test");
+@preamble {
+    @ignore("builtin")
+    @ignore("test")
+}
 
 main
 cli.Run
 ```
 
-Place `@ignore` statements at the beginning to filter globally.
+Place `@preamble` with `@ignore` statements at the beginning to filter globally. You can also use single-line syntax: `@preamble @ignore("builtin") @ignore("test")`
 
 ## Practical Examples
 
