@@ -15,7 +15,8 @@ directory (level 4)
     └── module (level 3)
         └── file (level 2)
             ├── function (level 1)
-            └── type (level 1)
+            ├── type (level 1)
+            └── data (level 1)
 ```
 
 A higher-level symbol **contains** a lower-level symbol if:
@@ -69,6 +70,7 @@ Each container type also sets default child types:
 | `@file` | functions, modules |
 | `@mod` | modules, functions |
 | `@type` | types |
+| `@data` | data |
 
 ## Practical Examples
 
@@ -134,7 +136,7 @@ These return very different results:
 ```
 
 Container type selectors participate in this inheritance:
-- `@func` explicitly sets **REFS**, overriding any inherited refs+has
+- `@func`, `@type`, `@data` explicitly set **REFS**, overriding any inherited refs+has
 - `@mod`, `@file`, `@dir` set **refs+has** with inheritance
 
 ### Nested Containment
