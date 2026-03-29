@@ -16,7 +16,8 @@ directory (level 4)
         └── file (level 2)
             ├── function (level 1)
             ├── type (level 1)
-            └── data (level 1)
+            ├── data (level 1)
+            └── macro (level 1)
 ```
 
 A higher-level symbol **contains** a lower-level symbol if:
@@ -71,6 +72,7 @@ Each container type also sets default child types:
 | `mod` | modules, functions |
 | `type` | types |
 | `data` | data |
+| `macro` | macros, functions |
 
 ## Practical Examples
 
@@ -136,7 +138,7 @@ has {              /* HAS for descendants */
 ```
 
 Container type selectors participate in this inheritance:
-- `func`, `type`, `data` explicitly set **REFS**, overriding any inherited refs+has
+- `func`, `type`, `data`, `macro` explicitly set **REFS**, overriding any inherited refs+has
 - `mod`, `file`, `dir` set **refs+has** with inheritance
 
 ### Nested Containment

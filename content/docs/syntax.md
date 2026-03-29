@@ -60,18 +60,19 @@ A scope `{` must be on the **same line** as its verb to attach:
 
 ### 2. Symbol Types
 
-Askl supports six symbol types organized in a hierarchy:
+Askl supports seven symbol types organized in a hierarchy:
 
 | Type | Level | Description |
 |------|-------|-------------|
 | `function` | 1 | Functions, methods, procedures |
 | `type` | 1 | Structs, interfaces, type declarations |
 | `data` | 1 | Package-level variables, constants |
+| `macro` | 1 | C/C++ preprocessor macros (`#define`) |
 | `file` | 2 | Source files |
 | `module` | 3 | Packages, modules, namespaces |
 | `directory` | 4 | Filesystem directories |
 
-Higher-level symbols can **contain** lower-level symbols (e.g., a module contains files, which contain functions). Data, types, and functions share the same level — all are leaf-level symbols inside files and modules.
+Higher-level symbols can **contain** lower-level symbols (e.g., a module contains files, which contain functions). Data, types, macros, and functions share the same level — all are leaf-level symbols inside files and modules.
 
 ### 3. Relationships
 
@@ -141,6 +142,7 @@ Verbs in Askl fall into three categories:
 | `func("name")` | Select functions matching a name |
 | `type("name")` | Select types matching a name |
 | `data("name")` | Select data symbols (variables, constants) matching a name |
+| `macro("name")` | Select macros matching a name |
 | `mod("name")` | Select modules matching a name |
 | `file("name")` | Select files matching a name |
 | `dir("name")` | Select directories matching a name |
@@ -160,6 +162,7 @@ Multiple selectors in a statement combine—all must match for a symbol to be in
 | `func` (no name) | Only include function symbols |
 | `type` (no name) | Only include type symbols |
 | `data` (no name) | Only include data symbols |
+| `macro` (no name) | Only include macro symbols |
 | `mod` (no name) | Only include module symbols |
 | `file` (no name) | Only include file symbols |
 | `dir` (no name) | Only include directory symbols |
@@ -236,6 +239,19 @@ mod("config") { data }   /* Data symbols in module (filter mode) */
 
 **Default child types:** data.
 
+### macro
+
+Selects macro symbols (C/C++ preprocessor `#define` directives). Like `func` and `type`, explicitly sets the relationship to **references only**. Macros are indexed with their body range, so function calls inside a macro body become children of the macro by offset containment.
+
+```askl
+macro("LOG")              /* Macros matching "LOG" */
+macro(filter="false")     /* All macros */
+func("main") { macro }   /* Macros referenced by main */
+macro("LOG") { func }    /* Functions called inside LOG's body */
+```
+
+**Default child types:** macros and functions.
+
 ### mod
 
 Selects module/package symbols. Implicitly sets **refs+has** for children, so contained symbols are found without explicit `has`.
@@ -285,6 +301,7 @@ Each type selector sets default child types for its scope:
 | `func` | functions |
 | `type` | types |
 | `data` | data |
+| `macro` | macros, functions |
 | `mod` | modules, functions |
 | `file` | functions, modules |
 | `dir` | directories, files |
@@ -372,7 +389,7 @@ has {              /* HAS for descendants */
 ```
 
 Container type selectors participate in this inheritance:
-- `func`, `type`, `data` explicitly set REFS, overriding any inherited refs+has
+- `func`, `type`, `data`, `macro` explicitly set REFS, overriding any inherited refs+has
 - `mod`, `file`, `dir` set refs+has with inheritance
 
 ## Generic Verbs
@@ -409,7 +426,7 @@ filter("exact_name", "/src/main.go") /* Filter by exact name */
 ```
 
 **Filter kinds:**
-- `"type"`: Filter by symbol type (`"func"`, `"type"`, `"data"`, `"mod"`, `"file"`, `"dir"`)
+- `"type"`: Filter by symbol type (`"func"`, `"type"`, `"data"`, `"macro"`, `"mod"`, `"file"`, `"dir"`)
 - `"compound_name"`: Filter by compound name pattern (token matching)
 - `"exact_name"`: Filter by exact symbol name
 
