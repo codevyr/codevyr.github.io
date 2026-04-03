@@ -183,6 +183,7 @@ Multiple selectors in a statement combine—all must match for a symbol to be in
 | `derive(type="...")` | Set relationship type with options |
 | `preamble` | Apply subsequent verbs to the global scope |
 | `label("name")` / `@name` | Label this statement for reuse |
+| `unnest` | Include transitive children and references |
 | `!` (forced) | Force display of relationships |
 | `?` (weak) | Make statement non-constraining |
 
@@ -369,6 +370,26 @@ derive(type="refs", inherit="false") /* REFS for this scope only, children reset
 **Parameters:**
 - `type`: Comma-separated relationship types (`"has"`, `"refs"`, or `"has,refs"`)
 - `inherit`: Whether children inherit this setting (default: `"true"`)
+
+### unnest (Transitive Traversal)
+
+By default, scopes show only **direct** children (for `has`) or **direct** references (for `refs`). The `unnest` modifier removes this restriction, enabling full transitive traversal through all nesting levels.
+
+```askl
+func("main") has { func }           /* Only direct children of main */
+func("main") unnest has { func }    /* All transitively nested functions */
+```
+
+Without `unnest`, if `main` contains function `foo` which contains function `bar`, only `foo` appears. With `unnest`, both `foo` and `bar` appear.
+
+`unnest` also affects reference traversal:
+
+```askl
+func("main") { func }               /* Only refs directly in main's body */
+func("main") unnest { func }        /* Refs from main and all nested scopes */
+```
+
+> **Note:** `unnest` does **not** inherit to child scopes. Each statement that needs transitive traversal must use `unnest` explicitly.
 
 ### Relationship Inheritance
 
