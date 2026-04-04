@@ -60,19 +60,20 @@ A scope `{` must be on the **same line** as its verb to attach:
 
 ### 2. Symbol Types
 
-Askl supports seven symbol types organized in a hierarchy:
+Askl supports eight symbol types organized in a hierarchy:
 
 | Type | Level | Description |
 |------|-------|-------------|
-| `function` | 1 | Functions, methods, procedures |
-| `type` | 1 | Structs, interfaces, type declarations |
-| `data` | 1 | Package-level variables, constants |
-| `macro` | 1 | C/C++ preprocessor macros (`#define`) |
-| `file` | 2 | Source files |
-| `module` | 3 | Packages, modules, namespaces |
-| `directory` | 4 | Filesystem directories |
+| `field` | 1 | Struct fields, interface methods (dispatch points) |
+| `function` | 2 | Functions, methods, procedures |
+| `type` | 2 | Structs, interfaces, type declarations |
+| `data` | 2 | Package-level variables, constants |
+| `macro` | 2 | C/C++ preprocessor macros (`#define`) |
+| `file` | 3 | Source files |
+| `module` | 4 | Packages, modules, namespaces |
+| `directory` | 5 | Filesystem directories |
 
-Higher-level symbols can **contain** lower-level symbols (e.g., a module contains files, which contain functions). Data, types, macros, and functions share the same level — all are leaf-level symbols inside files and modules.
+Higher-level symbols can **contain** lower-level symbols (e.g., a module contains files, which contain functions). Fields are the lowest level — they can be contained by types, functions, files, and modules. Functions, data, types, and macros share the same level.
 
 ### 3. Relationships
 
@@ -143,6 +144,8 @@ Verbs in Askl fall into three categories:
 | `type("name")` | Select types matching a name |
 | `data("name")` | Select data symbols (variables, constants) matching a name |
 | `macro("name")` | Select macros matching a name |
+| `field("name")` | Select field symbols (function pointer dispatch points) matching a name |
+| `method("name")` | Alias for `field` — select interface methods / virtual dispatch points |
 | `mod("name")` | Select modules matching a name |
 | `file("name")` | Select files matching a name |
 | `dir("name")` | Select directories matching a name |
@@ -163,6 +166,8 @@ Multiple selectors in a statement combine—all must match for a symbol to be in
 | `type` (no name) | Only include type symbols |
 | `data` (no name) | Only include data symbols |
 | `macro` (no name) | Only include macro symbols |
+| `field` (no name) | Only include field symbols |
+| `method` (no name) | Only include field symbols (alias) |
 | `mod` (no name) | Only include module symbols |
 | `file` (no name) | Only include file symbols |
 | `dir` (no name) | Only include directory symbols |
@@ -253,6 +258,23 @@ macro("LOG") { func }    /* Functions called inside LOG's body */
 
 **Default child types:** macros and functions.
 
+### field / method
+
+Selects field symbols — struct members that act as function pointer dispatch points (C) or interface method signatures (Go). `method` is an alias for `field`. Like `func`, explicitly sets the relationship to **references only**.
+
+Field names use compound naming: `struct_name.field_name` (e.g., `file_operations.read`). Since `dot_is_separator` is true, `field("read")` matches any field named "read" across all structs, while `field("file_operations.read")` matches precisely.
+
+```askl
+field("read")                      /* Fields matching "read" (broad) */
+field("file_operations.read")      /* Precise match */
+method("Read")                     /* Interface methods matching "Read" (Go) */
+func("vfs_read") { field("read") { func } }  /* Full dispatch chain */
+type("file_operations") has { field }         /* All fields of a struct */
+{ field("file_operations.read") }             /* Who calls through this field? */
+```
+
+**Default child types:** functions.
+
 ### mod
 
 Selects module/package symbols. Implicitly sets **refs+has** for children, so contained symbols are found without explicit `has`.
@@ -303,6 +325,7 @@ Each type selector sets default child types for its scope:
 | `type` | types |
 | `data` | data |
 | `macro` | macros, functions |
+| `field` / `method` | functions |
 | `mod` | modules, functions |
 | `file` | functions, modules |
 | `dir` | directories, files |
@@ -410,7 +433,7 @@ has {              /* HAS for descendants */
 ```
 
 Container type selectors participate in this inheritance:
-- `func`, `type`, `data`, `macro` explicitly set REFS, overriding any inherited refs+has
+- `func`, `type`, `data`, `macro`, `field`/`method` explicitly set REFS, overriding any inherited refs+has
 - `mod`, `file`, `dir` set refs+has with inheritance
 
 ## Generic Verbs
@@ -447,7 +470,7 @@ filter("exact_name", "/src/main.go") /* Filter by exact name */
 ```
 
 **Filter kinds:**
-- `"type"`: Filter by symbol type (`"func"`, `"type"`, `"data"`, `"macro"`, `"mod"`, `"file"`, `"dir"`)
+- `"type"`: Filter by symbol type (`"func"`, `"type"`, `"data"`, `"macro"`, `"field"`, `"method"`, `"mod"`, `"file"`, `"dir"`)
 - `"compound_name"`: Filter by compound name pattern (token matching)
 - `"exact_name"`: Filter by exact symbol name
 

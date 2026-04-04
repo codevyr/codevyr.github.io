@@ -16,6 +16,7 @@ New to Codevyr? Start here:
 - **[Local Deployment](/docs/local-deployment)** - Run Codevyr locally with Docker Compose
 - **[Askl Syntax](/docs/syntax)** - Complete reference for the Askl query language
 - **[Composition Model](/docs/composition)** - Understanding containment relationships between symbols
+- **[Function Pointer Dispatch](/docs/dispatch)** - Tracing function pointer and interface method dispatch to implementations
 
 ## Need Help?
 
