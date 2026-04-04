@@ -11,19 +11,22 @@ Askl's composition model allows you to query **containment relationships** betwe
 Symbols are organized in a hierarchy based on their type:
 
 ```
-directory (level 4)
-    └── module (level 3)
-        └── file (level 2)
-            ├── function (level 1)
-            ├── type (level 1)
-            ├── data (level 1)
-            └── macro (level 1)
+directory (level 5)
+    └── module (level 4)
+        └── file (level 3)
+            ├── function (level 2)
+            ├── type (level 2)
+            ├── data (level 2)
+            ├── macro (level 2)
+            └── field (level 1)
 ```
 
 A higher-level symbol **contains** a lower-level symbol if:
 1. They share the same source file (object)
 2. The higher-level symbol's byte range encompasses the lower-level symbol's range
 3. The type levels are compatible (higher > lower)
+
+Fields sit at the lowest level, so they can be contained by types (e.g., `type("file_operations") has { field }`), files, modules, and directories.
 
 ## Two Relationship Types
 
@@ -73,6 +76,7 @@ Each container type also sets default child types:
 | `type` | types |
 | `data` | data |
 | `macro` | macros, functions |
+| `field` / `method` | functions |
 
 ## Practical Examples
 
@@ -138,7 +142,7 @@ has {              /* HAS for descendants */
 ```
 
 Container type selectors participate in this inheritance:
-- `func`, `type`, `data`, `macro` explicitly set **REFS**, overriding any inherited refs+has
+- `func`, `type`, `data`, `macro`, `field`/`method` explicitly set **REFS**, overriding any inherited refs+has
 - `mod`, `file`, `dir` set **refs+has** with inheritance
 
 ### Nested Containment
