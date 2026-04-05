@@ -173,8 +173,9 @@ Multiple selectors in a statement combine—all must match for a symbol to be in
 | `dir` (no name) | Only include directory symbols |
 
 > **Note:** Type selectors like `func` behave differently based on arguments:
-> - With a name (`func("foo")`) → **Selector** (queries matching symbols)
-> - Without a name (`func`) → **Filter** (constrains to type, derives from parent)
+> - Without a name (`func`) → **Filter** (constrains to type, **inherits to all descendants**)
+> - With a name (`func("foo")`) → **Selector** (queries matching symbols, does NOT inherit)
+> - Use `any` in a child scope to remove inherited type filtering
 > - Explicit: `func(filter="false")` forces selector mode
 
 ### Modifiers
@@ -188,7 +189,8 @@ Multiple selectors in a statement combine—all must match for a symbol to be in
 | `derive(type="...")` | Set relationship type with options |
 | `preamble` | Apply subsequent verbs to the global scope |
 | `label("name")` / `@name` | Label this statement for reuse |
-| `unnest` | Include transitive children and references |
+| `unnest` | Include transitive children/references and all containment levels |
+| `any` | Remove inherited type filtering (match all symbol types) |
 | `!` (forced) | Force display of relationships |
 | `?` (weak) | Make statement non-constraining |
 
@@ -317,23 +319,28 @@ dir("/") {}              /* Shows directories and files (default child types) */
 
 ### Default Type Inheritance
 
-Each type selector sets default child types for its scope:
+At root level (no parent type selector), the default is **all types** — no filtering is applied. When a bare type selector is used, it sets default child types for its scope and **inherits** to all descendants:
 
-| Type Selector | Default Child Types |
-|---------------|-------------------|
-| `func` | functions |
-| `type` | types |
-| `data` | data |
-| `macro` | macros, functions |
-| `field` / `method` | functions |
-| `mod` | modules, functions |
-| `file` | functions, modules |
-| `dir` | directories, files |
+| Type Selector | Default Child Types | Inherits |
+|---------------|-------------------|----------|
+| *(root level)* | all types | — |
+| `func` | functions | yes |
+| `type` | types | yes |
+| `data` | data | yes |
+| `macro` | macros, functions | yes |
+| `field` / `method` | functions | yes |
+| `mod` | modules, functions | yes |
+| `file` | functions, modules | yes |
+| `dir` | directories, files | yes |
+
+Bare type selectors (without a name) inherit by default — their type filter propagates into all descendant scopes. Named type selectors like `func("foo")` do **not** inherit.
 
 ```askl
 mod("mypackage") {}      /* Children include modules AND functions */
 mod("mypackage") { func }  /* Children explicitly filtered to functions only */
 dir("/") {}              /* Children include directories AND files */
+data { { "bar" } }       /* data filter inherits — inner scope also filters to data */
+data { any { "bar" } }   /* any removes inheritance — inner scope matches all types */
 ```
 
 ### Container Types and Implicit Relationships
@@ -396,7 +403,7 @@ derive(type="refs", inherit="false") /* REFS for this scope only, children reset
 
 ### unnest (Transitive Traversal)
 
-By default, scopes show only **direct** children (for `has`) or **direct** references (for `refs`). The `unnest` modifier removes this restriction, enabling full transitive traversal through all nesting levels.
+By default, scopes show only **direct** children (for `has`) or **direct** references (for `refs`), and upward HAS derivation returns only the **innermost** parent. The `unnest` modifier removes these restrictions, enabling full transitive traversal through all nesting levels.
 
 ```askl
 func("main") has { func }           /* Only direct children of main */
@@ -412,7 +419,27 @@ func("main") { func }               /* Only refs directly in main's body */
 func("main") unnest { func }        /* Refs from main and all nested scopes */
 ```
 
+For upward (caller/parent) derivation, `unnest` returns all containment levels instead of just the innermost parent:
+
+```askl
+{ "inner_symbol" }          /* Only the innermost container */
+unnest { "inner_symbol" }   /* All containers at every level */
+```
+
 > **Note:** `unnest` does **not** inherit to child scopes. Each statement that needs transitive traversal must use `unnest` explicitly.
+
+### any (Remove Inherited Type Filtering)
+
+The `any` modifier removes inherited type filters from parent scopes, allowing the current statement to match all symbol types regardless of what the parent specified.
+
+```askl
+data { any { "bar" } }     /* Inner scope matches all types, not just data */
+func { any { "baz" } }     /* Inner scope matches all types, not just functions */
+```
+
+Without `any`, a bare type selector like `data` inherits its type filter to all descendants. Use `any` in a child scope to opt out.
+
+> **Note:** `any` does **not** inherit to child scopes. It only affects the statement it appears on. At root level (where there is no inherited type filter), `any` is a no-op.
 
 ### Relationship Inheritance
 
