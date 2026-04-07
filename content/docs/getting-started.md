@@ -40,7 +40,7 @@ Find all functions named "main":
 "main"
 ```
 
-This matches any function with "main" in its name across your entire codebase.
+This matches any symbol whose last name component is "main" across your entire codebase.
 
 #### 2. Qualified Function Names
 
@@ -50,9 +50,7 @@ Find functions with specific package and function names:
 "cli.Run"
 ```
 
-This matches functions where:
-- The full package path contains "cli"
-- The function name contains "Run"
+This matches functions where the path contains both "cli" and "Run" tokens (compound pattern matching).
 
 **Note**: Matching is context-sensitive and exact - "cli" will not match "click".
 

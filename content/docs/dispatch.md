@@ -94,7 +94,7 @@ Returns all functions assigned to the `read` field of `file_operations`. For Lin
 field("read") { func }
 ```
 
-Since `dot_is_separator` is true, `"read"` matches any field named `read` across all structs (`file_operations.read`, `address_space_operations.read`, etc.).
+Since `"read"` is a simple name (no separators), it matches any field whose last component is `read` across all structs (`file_operations.read`, `address_space_operations.read`, etc.).
 
 ### Full dispatch chain from a caller
 
@@ -187,9 +187,9 @@ Traces: `processData` calls through the `Read` interface method &rarr; concrete 
 | C | `struct_name.field_name` | `file_operations.read` |
 | Go | `(pkg.Interface).Method` | `(io.Reader).Read` |
 
-Both use `dot_is_separator=true`, so token matching works uniformly:
-- `field("read")` or `method("Read")` matches the last component
-- `field("file_operations.read")` or `method("io.Reader.Read")` matches precisely
+Both use dots as separators, so matching works uniformly:
+- `field("read")` or `method("Read")` — simple name, matches the last component (leaf match)
+- `field("file_operations.read")` or `method("io.Reader.Read")` — compound name, matches precisely (pattern match)
 
 ## Limitations
 
