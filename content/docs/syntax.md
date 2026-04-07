@@ -101,33 +101,50 @@ file("/main.go") { "handler" }  /* handler function in main.go */
 
 ### 4. Pattern Matching
 
-Askl uses exact, case-sensitive token matching on fully qualified names:
+Askl uses exact, case-sensitive matching. How a name is matched depends on whether it contains separator characters:
 
-- `"cli.Run"` matches symbols containing both "cli" and "Run" tokens
-- `"cli"` will NOT match "click" (exact matching)
-- Matching works on the complete package path + symbol name
+#### Simple Names (Leaf Matching)
+
+A name with **no separators** matches the **last component** of the symbol path. This uses a fast B-tree index lookup:
+
+- `func("handler")` matches functions whose last path component is "handler"
+- `"main"` matches symbols named "main" (not "main_helper" or "domain")
+- `field("read")` matches fields named "read" across all structs
+
+**Separator characters** depend on the symbol type:
+- **Code symbols** (func, type, data, macro, field, mod): `.` `/` `:`
+- **Files and directories**: `/` `:` (`.` is NOT a separator — it's part of filenames)
+
+So `file("main.go")` is a simple name (no `/` or `:`) and matches files whose last path component is "main_go".
+
+#### Compound Names (Pattern Matching)
+
+A name with **separators** uses pattern matching across the full symbol path:
+
+- `"cli.Run"` matches symbols containing both "cli" and "Run" tokens in order
+- `func("http.Handler")` matches functions with "http" and "Handler" in their path
+- `"cli"` will NOT match "click" (exact token matching)
 
 #### Path-based Matching for Files and Directories
 
-File and directory selectors support two matching modes:
+File and directory selectors support additional matching modes:
 
 | Argument | Matching | Example |
 |----------|----------|---------|
 | Starts with `/` | Exact path match | `file("/src/main.go")` |
-| No leading `/` | Leaf-anchored match | `dir("kueue")` matches directories **named** "kueue" (last path component) |
+| Simple name (no `/` `:`) | Leaf match (last component) | `dir("kueue")` matches directories **named** "kueue" |
+| Compound (has `/` or `:`) | Leaf-anchored pattern | `dir("pkg/kueue")` matches "kueue" dirs with "pkg" earlier in path |
 
-By default, `dir` and `file` anchor the last token to the end of the path. This means `dir("kueue")` only matches directories whose name is "kueue", not every directory that happens to have "kueue" somewhere in its path.
+For compound dir/file queries, intermediate tokens match anywhere but the last is anchored: `dir("pkg/kueue")` matches directories named "kueue" that have "pkg" somewhere earlier in their path.
 
-For multi-token queries, intermediate tokens match anywhere but the last is still anchored: `dir("pkg/kueue")` matches directories named "kueue" that have "pkg" somewhere earlier in their path.
-
-To match a token **anywhere** in the path (the old behavior), use `match="contains"`:
+To match a token **anywhere** in the path (non-anchored), use `match="contains"`:
 
 ```
 dir("kueue", match="contains")   // matches any directory with "kueue" in its path
 file("main", match="contains")   // matches any file with "main" in its path
 ```
 
-> **Note:** The `match` parameter has no effect when the argument starts with `/` (exact path match always takes precedence). For `func` and `mod`, the default is already "contains" matching.
+> **Note:** The `match` parameter has no effect when the argument starts with `/` (exact path match always takes precedence).
 
 ## Verb Types
 
@@ -264,7 +281,7 @@ macro("LOG") { func }    /* Functions called inside LOG's body */
 
 Selects field symbols — struct members that act as function pointer dispatch points (C) or interface method signatures (Go). `method` is an alias for `field`. Like `func`, explicitly sets the relationship to **references only**.
 
-Field names use compound naming: `struct_name.field_name` (e.g., `file_operations.read`). Since `dot_is_separator` is true, `field("read")` matches any field named "read" across all structs, while `field("file_operations.read")` matches precisely.
+Field names use compound naming: `struct_name.field_name` (e.g., `file_operations.read`). A simple name like `field("read")` matches any field whose last component is "read" across all structs, while `field("file_operations.read")` uses pattern matching for a precise match.
 
 ```askl
 field("read")                      /* Fields matching "read" (broad) */
@@ -295,7 +312,7 @@ mod("pkg") { func }      /* Functions in module (no has needed) */
 Selects file symbols. Implicitly sets **refs+has** for children.
 
 ```askl
-file("main.go")          /* Files matching "main.go" (compound match) */
+file("main.go")          /* Files whose last component is "main_go" (leaf match) */
 file("/src/main.go")     /* Exact path match */
 file(filter="false")     /* All files */
 dir("/src") { file }     /* Files in /src directory */
@@ -308,7 +325,7 @@ dir("/src") { file }     /* Files in /src directory */
 Selects directory symbols. Implicitly sets **refs+has** for children.
 
 ```askl
-dir("cmd")               /* Directories matching "cmd" (compound match) */
+dir("cmd")               /* Directories named "cmd" (leaf match) */
 dir("/src")              /* Exact path match for /src */
 dir(filter="false")      /* All directories */
 dir("/") { file }        /* Files in root directory (no has needed) */
@@ -481,9 +498,9 @@ select(name="cli.Run")
 
 **Examples:**
 ```askl
-"main"          /* Symbols containing "main" */
-"http.Handler"  /* Symbols containing both "http" and "Handler" */
-"user.Create"   /* Symbols containing both "user" and "Create" */
+"main"          /* Symbols whose last name component is "main" */
+"http.Handler"  /* Symbols with both "http" and "Handler" in their path */
+"user.Create"   /* Symbols with both "user" and "Create" in their path */
 ```
 
 ### filter (Generic Filter)
