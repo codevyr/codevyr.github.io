@@ -46,7 +46,7 @@ canonifyURLs = true
 
 # LotussDocs theme configuration
 [params.lotusdocs]
-    version = "0.2.0"
+    version = "0.3.0"
     docsRepo = "https://github.com/codevyr/codevyr"
     docsRepoBranch = "main"
     docsRepoSubPath = ""

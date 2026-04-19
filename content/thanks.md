@@ -5,7 +5,7 @@ url: "/thanks/"
 draft: false
 weight: 9999
 toc: false
-_build:
+build:
   list: never
   render: always
 ---
