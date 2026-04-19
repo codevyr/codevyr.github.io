@@ -1,5 +1,5 @@
-github.com/colinwilson/lotusdocs v0.2.0 h1:vG/frwOUKPRpF3xuXk177Pw73aFrFcT2zRgTI9FiiMY=
-github.com/colinwilson/lotusdocs v0.2.0/go.mod h1:hGOYA9Ym3MA3YGmm9YHo9HkJxlHCyPNaYeFwvn/IFJY=
+github.com/colinwilson/lotusdocs v0.3.0 h1:O8XXKEzflGLZFfS6yqoSZt/AGHG7Nku1+UlOpAxosTk=
+github.com/colinwilson/lotusdocs v0.3.0/go.mod h1:hGOYA9Ym3MA3YGmm9YHo9HkJxlHCyPNaYeFwvn/IFJY=
 github.com/divinerites/plausible-hugo v1.21.1 h1:ZTWwjhZ0PmLMacCVGlcGiYFEZW7VaYE767tchDskOug=
 github.com/divinerites/plausible-hugo v1.21.1/go.mod h1:cxr+YB3FUwbLon8KCs4pV4Ankbkq6lJxTQUpNb5KqPo=
 github.com/gohugoio/hugo-mod-bootstrap-scss/v5 v5.20300.20400 h1:L6+F22i76xmeWWwrtijAhUbf3BiRLmpO5j34bgl1ggU=

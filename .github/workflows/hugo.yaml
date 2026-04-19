@@ -3,6 +3,8 @@ name: Deploy Hugo site to GitHub Pages
 on:
   push:
     branches: [ main ]   # change if you deploy from another branch
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -41,6 +43,7 @@ jobs:
         run: hugo --minify
 
       - name: Upload artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./public

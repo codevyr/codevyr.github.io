@@ -4,7 +4,7 @@ type: plain
 url: "/privacy/"
 draft: false
 weight: 9997
-_build:
+build:
   list: never
   render: always
 ---
