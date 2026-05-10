@@ -9,6 +9,7 @@ This tutorial walks you through running Codevyr locally (askld API, UI, and Post
 ## Prerequisites
 
 - Docker and Docker Compose
+- make
 - git
 - Enough disk space for the Kubernetes repository and index output
 
@@ -33,7 +34,7 @@ From the `compose` repo (use the local override to allow HTTP tokens and local C
 
 ```sh
 cd "$CODEVYR_WORK/compose"
-docker compose -f compose.yaml -f compose.local.yaml up -d
+make deploy-local
 ```
 
 Confirm the services are running:
