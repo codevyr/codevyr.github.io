@@ -125,6 +125,10 @@ You should see the Kubernetes project available. Try a simple Askl query like:
 "main"
 ```
 
+## Indexing C/C++ projects
+
+To index a C/C++ project instead of a Go one, see [C/C++ Indexing]({{< relref "c-indexing" >}}).
+
 ## Cleanup
 
 To stop the stack:
