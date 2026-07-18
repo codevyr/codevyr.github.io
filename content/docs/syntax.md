@@ -167,6 +167,7 @@ Verbs in Askl fall into three categories:
 | `file("name")` | Select files matching a name |
 | `dir("name")` | Select directories matching a name |
 | `use("label")` / `#label` | Select symbols from a labeled statement |
+| `search("text")` | Full-text search: create a symbol per byte-range match of `text` in indexed source content |
 
 Multiple selectors in a statement combine—all must match for a symbol to be included.
 
@@ -553,6 +554,51 @@ Filters results to a specific project (useful in multi-project setups).
 ```askl
 project("myproject") "main" {}    /* Only symbols from myproject */
 ```
+
+### search (Full-text Content Search)
+
+Full-text search over the raw source bytes of every indexed file. Each occurrence of the query becomes an ephemeral symbol anchored at that byte range, and downstream verbs (`{ }`, `has`, `refs`, etc.) can compose with it just like any other selector.
+
+**Signature:**
+
+```askl
+search(query, case="smart", whole_word="false", limit=500)
+```
+
+- `query` — required positional; the string to search for. **≥ 3 characters.**
+- `case` — `"smart"` (default), `"sensitive"`, or `"insensitive"`.
+- `whole_word` — `"false"` (default, substring match) or `"true"` (word-boundary match).
+- `limit` — integer ≥ 1, default `500`. Matches above the cap are dropped and the query result carries a truncation warning so you know to narrow.
+
+> ⚠️ **No regex support.** The query is matched as a *literal string* in every mode. `search("foo.*bar")` looks for the exact seven-character sequence `foo.*bar`, not a regex. `search("[a-z]+")` looks for the seven-character sequence `[a-z]+`. This is the most common surprise for users coming from `grep` / `ripgrep`; document your queries accordingly.
+
+**Smart case (default).** Matches ripgrep's convention: if the query is all-lowercase the match is case-insensitive; if it contains any uppercase character it becomes case-sensitive. So `search("foo")` matches `foo`/`Foo`/`FOO`, but `search("Foo")` matches only `Foo`. To override, pass `case="sensitive"` or `case="insensitive"` explicitly.
+
+**Whole-word vs substring.**
+
+| `whole_word` | Behaviour |
+|---|---|
+| `"false"` (default) | `search("foo")` matches `foo`, `foobar`, `xfoo`, `foo_bar` — any substring occurrence. |
+| `"true"` | `search("foo")` matches only occurrences bounded by non-word characters on both sides. Word characters are `[A-Za-z0-9_]`, so `foo_bar` counts as one word (no match on `foo`), but `foo.bar` splits on the dot and both `foo` and `bar` match. |
+
+**Composition examples:**
+
+```askl
+project("kubernetes") search("mana_ib_reg_user")
+    /* Search only inside the kubernetes project */
+
+search("HandleFunc", case="sensitive")
+    /* Case-sensitive substring search */
+
+search("open", whole_word="true") {}
+    /* For every occurrence of the word "open", pull its children (via has/refs) */
+
+project("linux")
+search("EXPORT_SYMBOL", whole_word="true", limit=2000)
+    /* Higher limit for a common macro */
+```
+
+See **[Design: search()](/docs/design/search)** for the full architecture — the four SQL variants, the pg_trgm / tsvector pipeline, the byte-offset PL/pgSQL helper, the ephemeral-layer cache key composition, and the correctness invariant across filter compositions.
 
 ### forced (Override Relationships)
 

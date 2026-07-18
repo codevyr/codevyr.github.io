@@ -1,7 +1,7 @@
 ---
 title: "Execution Engine"
 description: "How the askl query engine evaluates queries using a monotone worklist algorithm"
-weight: 300
+weight: 100
 ---
 
 The askl execution engine is a **monotone worklist propagation system**. Each query statement
