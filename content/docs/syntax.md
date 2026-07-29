@@ -101,7 +101,14 @@ file("/main.go") { "handler" }  /* handler function in main.go */
 
 ### 4. Pattern Matching
 
-Askl uses exact, case-sensitive matching. How a name is matched depends on whether it contains separator characters:
+Name arguments come in two string types:
+
+- **Plain strings** (`"name"`) use exact, case-sensitive matching.
+- **Glob strings** (`g"name*"`) opt into wildcard matching — see [Glob Patterns](#glob-patterns-g) below.
+
+A prefix glued to the opening quote selects the string type. The prefix `re"..."` is reserved for future regex support; unknown prefixes are rejected with a parse error.
+
+For plain strings, how a name is matched depends on whether it contains separator characters:
 
 #### Simple Names (Leaf Matching)
 
@@ -146,6 +153,29 @@ file("main", match="contains")   // matches any file with "main" in its path
 
 > **Note:** The `match` parameter has no effect when the argument starts with `/` (exact path match always takes precedence).
 
+#### Glob Patterns (`g"..."`)
+
+A string prefixed with `g` is a **glob pattern**: `*` matches any run of characters (including none). Globbing is opt-in — a `*` inside a plain string is not a wildcard.
+
+```
+g"handle*"          // functions starting with "handle"
+g"*alloc*"          // anything containing "alloc"
+file(g"*.go")       // all Go files
+ignore(g"*_test")   // exclude test symbols
+```
+
+Glob strings work in every name position: bare selectors, `func()`/`file()`/`mod()`/... (in both selector and filter mode), `ignore()`, and `filter("exact_name", ...)`/`filter("compound_name", ...)`.
+
+**Matching rules:**
+
+- **Smart case**: an all-lowercase pattern matches case-insensitively; any uppercase letter makes the match case-sensitive. `g"is*"` matches `IsSorted`, but `g"Is*"` does not match `issorted`.
+- **Simple patterns** (no separators) match against the last path component, like plain simple names. Literal characters are normalized the same way symbol names are indexed, so `g"my-app*"` matches a file stored as `myapp_c`.
+- **Compound patterns** (containing `.`, `/` or `:`) match as a **substring of the full symbol name** — component boundaries are not enforced, so `g"fmt.Print*"` matches any symbol whose name contains `fmt.Print`.
+- A pattern must contain at least one literal character; a bare `g"*"` is rejected.
+- `filter("exact_name", g"...")` anchors the pattern: the whole name must match.
+
+> **Note:** Plain strings remain the right tool for pasted symbol names. A name like `"(*Kubelet).Run"` matches exactly even though it contains `*`, because plain strings never treat `*` as a wildcard.
+
 ## Verb Types
 
 Verbs in Askl fall into three categories:
@@ -156,7 +186,7 @@ Verbs in Askl fall into three categories:
 
 | Verb | Description |
 |------|-------------|
-| `"name"` / `select(name="...")` | Select symbols matching a name pattern |
+| `"name"` / `g"pattern"` / `select(name="...")` | Select symbols matching a name (exact) or glob pattern |
 | `func("name")` | Select functions matching a name |
 | `type("name")` | Select types matching a name |
 | `data("name")` | Select data symbols (variables, constants) matching a name |
