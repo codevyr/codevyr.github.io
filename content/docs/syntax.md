@@ -168,13 +168,15 @@ Glob strings work in every name position: bare selectors, `func()`/`file()`/`mod
 
 **Matching rules:**
 
+- **Anchored**: a glob matches the whole name (the leaf, or for compound patterns the full symbol name). To match anywhere, add explicit wildcards: `g"*handle*"`, not `g"handle"`. For leaf globs you can also pass `match="contains"` to wrap the pattern implicitly.
 - **Smart case**: an all-lowercase pattern matches case-insensitively; any uppercase letter makes the match case-sensitive. `g"is*"` matches `IsSorted`, but `g"Is*"` does not match `issorted`.
 - **Simple patterns** (no separators) match against the last path component, like plain simple names. Literal characters are normalized the same way symbol names are indexed, so `g"my-app*"` matches a file stored as `myapp_c`.
-- **Compound patterns** (containing `.`, `/` or `:`) match as a **substring of the full symbol name** — component boundaries are not enforced, so `g"fmt.Print*"` matches any symbol whose name contains `fmt.Print`.
-- A pattern must contain at least one literal character; a bare `g"*"` is rejected.
-- `filter("exact_name", g"...")` anchors the pattern: the whole name must match.
+- **Compound patterns** (containing `.`, `/` or `:`) match the full symbol name, anchored: `g"fmt.Print*"` matches names that start with `fmt.Print`, and `g"/src/*"` matches paths under `/src/`.
+- A pattern must contain at least one literal character that survives normalization; bare `g"*"` (and patterns like `g"-*"` whose only literal is stripped) are rejected.
 
 > **Note:** Plain strings remain the right tool for pasted symbol names. A name like `"(*Kubelet).Run"` matches exactly even though it contains `*`, because plain strings never treat `*` as a wildcard.
+
+> **Performance:** Glob matching is served by a trigram index, which needs a run of at least 3 literal characters to narrow the search. Patterns whose literals are all shorter than that (e.g. `g"*ab*"`) fall back to scanning every symbol in scope — prefer a longer literal anchor where possible.
 
 ## Verb Types
 
