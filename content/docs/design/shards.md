@@ -174,7 +174,7 @@ from each referenced output, \(g_c(o)\) per output. \(O_c\) is the
 set of outputs the command references via `@labels` — **selections**
 of *earlier* statements only, each complete once its statement has
 fully run ([terminology](/docs/design/overview/#terminology),
-[The Execution Engine](/docs/design/execution-engine)); a reference to
+[Evaluating the Fixpoint](/docs/design/evaluation)); a reference to
 the defining statement or any later one is a parse error, the
 **ordering rule**
 ([label ordering](/docs/syntax/#ordering-labels-reference-earlier-statements)).

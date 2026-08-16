@@ -49,8 +49,8 @@ $$N_c \;=\; \{\, x \in D(c) \;:\; \forall n.\ \exists\, y \in N_n.\ (x, y) \in E
 Each \(N_c\) is defined in terms of its neighbours' \(N_n\), which are
 defined in terms of theirs. The system is mutually recursive, and its
 answer is a **fixpoint**: start from the denotations and narrow, a
-command at a time, until nothing changes. That loop is the
-[execution engine](/docs/design/execution-engine); it terminates
+command at a time, until nothing changes. Running that loop is
+[evaluating the fixpoint](/docs/design/evaluation); it terminates
 because every step only removes rows.
 
 ## 4. A fixpoint resists caching {#fixpoint-resists-caching}
@@ -139,7 +139,7 @@ name guarantees is
 
 ## Where to read more
 
-- [Execution Engine](/docs/design/execution-engine) — the fixpoint of §3.
+- [Evaluating the Fixpoint](/docs/design/evaluation) — the fixpoint of §3.
 - [Cost-Based Execution](/docs/design/cost-based-execution) — making §5's bound tight.
 - [Caching](/docs/design/caching) — the two tiers of §7.
 - [Partitioning a Materialisation](/docs/design/shards) — the split of §9.

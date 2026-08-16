@@ -1,7 +1,7 @@
 ---
 title: "Cost-Based Execution"
 description: "A formal model of query planning from measured cardinality: denotations, anchors, capped probes, and semi-join refinement with its soundness argument"
-weight: 110
+weight: 115
 ---
 
 The askl engine plans query execution from **measured cardinality**, not from
@@ -59,7 +59,7 @@ propagation in which neighbouring substatements constrain each other through
 $$o(s) \;=\; \{\, x \in D(s) \;:\; \exists\, y \in o(n).\; (x,y) \in E_{\mathrm{rel}} \,\}$$
 
 (for constraining neighbours; weak neighbours impose no such condition —
-see [Weakness and Bindness](/docs/design/execution-engine/#weakness-and-bindness)).
+see [Weakness and Bindness](/docs/design/semantics/#weakness-and-bindness)).
 Here \(E_{\mathrm{rel}}\) is the evidence relation: a REFS edge or a
 containment edge, matched **per symbol** — if any instance of a symbol is
 evidenced, all of that symbol's instances survive.
@@ -250,7 +250,9 @@ consumers in §7 ask.
 
 ## Where to read more
 
-- [Execution Engine](/docs/design/execution-engine) — the worklist
-  fixpoint, dependency kinds, and weakness/bindness.
+- [Queries and their Meaning](/docs/design/semantics) — the predicate
+  and denotation this page plans for, and weakness/bindness.
+- [Evaluating the Fixpoint](/docs/design/evaluation) — the worklist
+  fixpoint the resolved sets are handed to.
 - [Partitioning a Materialisation](/docs/design/shards) — the layer forest probes and
   reads execute against.

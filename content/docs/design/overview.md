@@ -26,7 +26,7 @@ anchor, so that a query cannot ask for "everything" by accident, and a
 `@label` may only reference an earlier statement.
 
 Each statement then runs three phases before the next one starts
-([Execution Engine](/docs/design/execution-engine)):
+([Evaluating the Fixpoint](/docs/design/evaluation)):
 
 1. **Materialise.** Commands that produce content — `search`, `loc`,
    `layer { … }` — write their rows into new layers. Those layers are
@@ -49,7 +49,7 @@ Each statement then runs three phases before the next one starts
 constraints between neighbouring substatements — a parent narrows its
 children, children narrow their parent — until nothing changes. What
 survives that fixpoint is the query's answer
-([Execution Engine](/docs/design/execution-engine)).
+([Evaluating the Fixpoint](/docs/design/evaluation)).
 
 Underneath, two caches serve the whole pipeline: a database-backed
 cache of materialised layers, shared across queries and processes, and
@@ -117,9 +117,11 @@ The design pages use these terms with fixed meanings:
 ## Where to start
 
 - **To understand what a query *means***, read
-  [Execution Engine](/docs/design/execution-engine) for composition and
-  weakness, then [Cost-Based Execution](/docs/design/cost-based-execution)
-  for how the same meaning is computed cheaply.
+  [Queries and their Meaning](/docs/design/semantics) for composition and
+  weakness, then [Evaluating the Fixpoint](/docs/design/evaluation) for
+  how that meaning is computed and
+  [Cost-Based Execution](/docs/design/cost-based-execution) for how it is
+  computed cheaply.
 - **To understand how results are stored and reused**, read
   [Layers and layer operations](/docs/design/layers) for the data model,
   then [Partitioning a Materialisation](/docs/design/shards) — it derives
@@ -138,7 +140,7 @@ The design pages use these terms with fixed meanings:
 - **[Queries and their Meaning](/docs/design/semantics)** — how verbs
   fold into one predicate and one populate, and why a query's answer is
   a fixpoint of mutually constraining selections.
-- **[Execution Engine](/docs/design/execution-engine)** — the phases a
+- **[Evaluating the Fixpoint](/docs/design/evaluation)** — the phases a
   statement runs, and the monotone worklist that composes
   neighbouring substatements to a fixpoint.
 - **[Cost-Based Execution](/docs/design/cost-based-execution)** —

@@ -20,7 +20,7 @@ commands denote. A command's denotation is computable from the command
 alone; its selection is not, because each substatement's neighbours
 constrain it and it constrains them back. Meaning here is a **fixpoint
 of mutual constraint** — which decides how a query is evaluated
-([Execution Engine](/docs/design/execution-engine)) and, because a
+([Evaluating the Fixpoint](/docs/design/evaluation)) and, because a
 fixpoint cannot be named cheaply, what the caches are allowed to store
 ([From Result to Cache](/docs/design/derivation)).
 
@@ -228,7 +228,7 @@ defined through theirs. The system is mutually recursive, and its
 answer is the **fixpoint**: start from the denotations and narrow, a
 command at a time, until nothing changes. That every step only removes
 rows is what makes the fixpoint reachable, and
-[Execution Engine](/docs/design/execution-engine) is how it is
+[Evaluating the Fixpoint](/docs/design/evaluation) is how it is
 reached.
 
 Between the denotation and the selection sits the object the engine
@@ -266,7 +266,7 @@ one satisfied sufficient dep enables the first output; the rest narrow it.
   parent's result and has nothing to compute on its own.
 
 The graph these kinds induce, and the order it is walked in, belong to
-[Execution Engine](/docs/design/execution-engine).
+[Evaluating the Fixpoint](/docs/design/evaluation).
 
 ## 9. Weakness and bindness {#weakness-and-bindness}
 
@@ -345,7 +345,7 @@ by construction, and the propagation rule above decides the rest.
 
 ## Where to read more
 
-- [Execution Engine](/docs/design/execution-engine) — how §7's fixpoint
+- [Evaluating the Fixpoint](/docs/design/evaluation) — how §7's fixpoint
   is computed, and why the computation stops.
 - [Cost-Based Execution](/docs/design/cost-based-execution) — using
   anchors and measured cardinality to make a read tight.
