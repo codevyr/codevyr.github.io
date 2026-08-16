@@ -52,7 +52,7 @@ tag is a plain `layer BIGINT` column carried by the data tables:
 layers {
     id         BIGINT PRIMARY KEY   -- the layer's id
     parent_id  BIGINT               -- the layer this one was chained onto
-    base_id    BIGINT               -- links an eph-layer shard to the root shard it caches against
+    root_shard_id BIGINT            -- links an eph-layer shard to the root shard it caches against
     kind       TEXT                 -- 'root' | 'canary' | 'ephemeral' (coarse: not per-verb)
     hash       BYTEA UNIQUE         -- content-addressed cache key (see Caching)
     populated  BOOL                 -- two-phase-commit guard (see Caching)
@@ -157,10 +157,10 @@ one: `search("a") { search("b") }` is one statement, and the
 inner populate does not see the outer's layers — only the next statement's
 commands do.
 
-A root's **`chain_last`** is its spine tip — the last layer of the most
-recent materialisation in command pre-order — and the *next* statement's selection shards
-hang off it: one per supplement-bearing command, **siblings** on the same
-tip. Note what does and does
+A root's **`tip`** is its spine tip — the last layer of the most
+recent materialisation in command pre-order — and the *next* statement's
+selection shards hang off it: one per selection-shard-bearing command,
+**siblings** on the same tip. Note what does and does
 not hang there: only selection shards parent on the spine; the same materialisation's root shards
 parent on the root and its layer shards on the individual layers they shard, which is
 what keeps their cache keys context-free. Visibility, not parentage, is what
@@ -211,7 +211,7 @@ operations**, without a populate:
 Ops may reference persistent ids or the ephemeral ids produced by *earlier
 statements'* layers — a `@label` argument must name an earlier top-level
 statement; same-statement references are parse errors (that is why the
-block's selection shard is chained onto `chain_last`, the previous statement's tip).
+block's selection shard is chained onto `tip`, the previous statement's tip).
 The block validates every referenced id against the visible project set before
 committing, so a typo'd id fails loudly instead of committing a hollow layer.
 
@@ -270,5 +270,5 @@ That is what lets the executor cache each layer's contribution independently (se
 **Masking** — a higher layer *removing* or *shadowing* a lower layer's rows — is
 a deliberate non-feature for now. It would make composition order-dependent (a
 fold, not a union) and is out of scope until there is a concrete need. The data
-model already reserves room for it: `base_id` on an eph-layer shard records the
+model already reserves room for it: `root_shard_id` on an eph-layer shard records the
 root shard whose rows a future mask would subtract from.

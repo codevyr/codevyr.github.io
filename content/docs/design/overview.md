@@ -104,22 +104,21 @@ The design pages use these terms with fixed meanings:
   Distinct from the selection *function* \(\sigma_g\), which filters a
   row set.
 - **materialisation** — the set of layers one layer-creating statement
-  produces on one project, appended to visibility atomically (the
-  engine calls it a *round*: `push_round`). Statements and their
-  materialisations correspond one-to-one, so \(t\) indexes both.
+  produces on one project, appended to visibility atomically
+  (`push_materialisation`). Statements and their materialisations
+  correspond one-to-one, so \(t\) indexes both.
 - **shard** — a node holding one dependency's part of a command's
   materialisation. The **input shards** \(\mathrm{Sh}_c(\ell)\) are
   keyed by their input plus \(H(c)\): the root shard
-  (\(\mathrm{Sh}_c(R)\), code: base) over the persistent corpus, and
-  one layer shard (code: per-layer node) per pre-statement ephemeral
-  layer. The **selection shard** (next entry) is keyed on the chain.
+  (\(\mathrm{Sh}_c(R)\)) over the persistent corpus, and one layer shard
+  per pre-statement ephemeral layer. The **selection shard** (next entry)
+  is keyed on the chain.
   Reuse scope is per kind: input shards are shared wherever their
   input is visible; the selection shard only along its chain.
 - **selection shard** — the per-command node parented on the previous
-  statement's tip (\(S_c\), code: supplement); holds everything built
-  on outputs — the materialisation's selection-dependent term — and
-  marks the chain position when empty. A
-  statement's supplement-bearing commands contribute *sibling*
+  statement's tip (\(S_c\)); holds everything built on outputs — the
+  materialisation's selection-dependent term — and marks the chain position
+  when empty. A statement's selection-shard-bearing commands contribute *sibling*
   selection shards; the new tip is the materialisation's last layer in pre-order.
 - **wave** — one probe iteration of the cost-based executor (wave 0 plus
   the refinement waves), distinct from a materialisation.

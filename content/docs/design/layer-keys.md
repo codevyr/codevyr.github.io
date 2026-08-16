@@ -92,7 +92,7 @@ unchanged by the composition machinery — single-verb commands stay
 cache-warm). For several verbs the per-verb hashes fold in **source
 order**:
 
-$$H(c) \;=\; H\bigl(\, \text{composite-base-v1} \,\Vert\, H(c,1) \,\Vert\, \dots \,\Vert\, H(c,m) \,\bigr)$$
+$$H(c) \;=\; H\bigl(\, \text{composite-input-v1} \,\Vert\, H(c,1) \,\Vert\, \dots \,\Vert\, H(c,m) \,\bigr)$$
 
 Each part is a fixed 32 bytes, so the concatenation needs no delimiters.
 Source order does mean `search("a") search("b")` and its reverse key
@@ -128,7 +128,7 @@ graph TD
     I2["inputs: &quot;b&quot;, case,<br/>whole-word, limit"] --> H2
     PS["container scope<br/>(fused, when present)"] -.-> H1
     PS -.-> H2
-    H1 --> HT["H(c)<br/>composite-base-v1 ‖ H(c,1) ‖ H(c,2)"]
+    H1 --> HT["H(c)<br/>composite-input-v1 ‖ H(c,1) ‖ H(c,2)"]
     H2 --> HT
     HR["h(R)<br/>root identity"] --> K["κ(B)<br/>root-shard key"]
     HT --> K
@@ -148,14 +148,11 @@ present); the command hash at the top.
 ## 7. Node keys
 
 The command hash \(H(c)\) is the "command inputs" ingredient of every node
-key in the [layer forest](/docs/design/layer-tree): the root shard
-(code: base) folds
-\((h(R), H(c))\), a layer shard (code: per-layer node) folds
-\((\mathrm{id}(\ell), H(c))\), the
-selection shard (code: supplement) folds
-\((\kappa(\mathrm{parent}), H(c), \mathrm{extra})\) — each
-under its own domain tag: root shard
-`base-rooted-v2`, layer shard `eph-perlayer-v1`, selection shard `eph-supplement-v1`,
+key in the [layer forest](/docs/design/layer-tree): the root shard folds
+\((h(R), H(c))\), a layer shard folds \((\mathrm{id}(\ell), H(c))\), the
+selection shard folds \((\kappa(\mathrm{parent}), H(c), \mathrm{extra})\) —
+each under its own domain tag: root shard `root-shard-v1`, layer shard
+`layer-shard-v1`, selection shard `selection-shard-v1`,
 so the three key families are disjoint even over equal payloads. The composite selection shard's `extra`
 folds each part's extra, length-prefixed, in source order.
 

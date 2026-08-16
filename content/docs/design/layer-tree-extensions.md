@@ -73,7 +73,7 @@ root, not a change to this algebra.
 ## 3. Per-output selection shards
 
 Sibling selection shards exist today, at the statement level: each
-supplement-bearing command of a statement contributes its own spine
+selection-shard-bearing command of a statement contributes its own spine
 node, all parented on the previous statement's tip, and the
 deterministic tip over the siblings is already settled — the last
 layer of the materialisation in command pre-order. What remains future is

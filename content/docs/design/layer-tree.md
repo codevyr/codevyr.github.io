@@ -238,17 +238,17 @@ what its rows read is named by \(\mathrm{extra}\).
 Each part is one node, and the three differ exactly as the three
 forces predict:
 
-- The **root shard** \(\mathrm{Sh}_c(R)\) (code: base) holds the
-  expensive populate over the committed bulk. Its key names the
+- The **root shard** \(\mathrm{Sh}_c(R)\) holds the expensive populate
+  over the committed bulk. Its key names the
   corpus and the command, nothing else, so no ephemeral change can
   reach it; only a mutation of the persistent index invalidates it
   (assumption A3 in §4).
-- A **layer shard** \(\mathrm{Sh}_c(\ell)\) (code: per-layer node)
-  holds the same populate over one light layer, keyed by that layer's
+- A **layer shard** \(\mathrm{Sh}_c(\ell)\) holds the same populate over
+  one light layer, keyed by that layer's
   identity: of the context, only \(\ell\) itself. A layer appearing
   or vanishing invalidates its own shard and no other.
-- The **selection shard** \(S_c(R)\) (code: supplement) holds the
-  whole selection-dependent term,
+- The **selection shard** \(S_c(R)\) holds the whole
+  selection-dependent term,
   \(C(S_c(R)) = \bigcup_{o \in O_c} g_c(o)\) — the outputs share one
   node rather than getting one each. These rows are the cheapest to
   produce (a batch insert of rows already computed) and the most
@@ -292,8 +292,8 @@ hash over byte strings, taking the command digest \(H(c)\) as one
 input; \(\Vert\) is byte concatenation; \(\mathrm{id}(\ell)\) and
 \(\mathrm{id}(\cdot)\) are database ids — the selection shard folds the
 tip's *id*, not its key; \(\mathrm{extra}\) covers any verb-specific
-additions; the \(\mathrm{dom}\) prefixes are per-kind
-domain-separation tags (literal strings in the appendix). In the
+additions; the \(\mathrm{dom}\) prefixes are per-kind domain-separation
+tags (`root-shard-v1`, `layer-shard-v1`, `selection-shard-v1`). In the
 current deployment no verb writes content onto an ephemeral layer, so
 \(E_t(R)\) is empty and each command materialises just a root shard
 and a selection shard.
@@ -444,7 +444,7 @@ graph TD
 ```
 
 The bold edges are the **spine** — the only lineage encoding query
-history (code: `chain_last`).
+history (code: `tip`).
 
 Statement 3 stores the union over its materialisation's nodes:
 \(C(\mathrm{Sh3}(R)) \cup C(\mathrm{Sh3}(L1)) \cup C(\mathrm{Sh3}(L2))
@@ -462,25 +462,13 @@ The formalism condenses into four operating rules:
 - **Visibility is a flat set, never a subtree** — queries bind
   `visible_ids()`, the union of the visible slices (§1); nothing walks
   the forest at read time.
-- **Only the spine orders anything** — `chain_last` =
+- **Only the spine orders anything** — `tip` =
   \(\mathrm{tip}_t(R)\), deterministic by §3's pre-order rule.
 - **Isolation is visibility read in reverse** — a returned row outside
   the visible set is a leak
   ([Layers and layer operations](/docs/design/layers)).
 - **Invalidation is (A3) enforced** — persistent-index mutations purge
   the ephemeral cache in the same transaction; nothing else does.
-
-## Appendix: names in the code
-
-This page's vocabulary is canonical; the code speaks a legacy
-vocabulary, so grepping the engine requires the right-hand columns.
-
-| Docs term | Legacy code name | Anchors in the code |
-|---|---|---|
-| materialisation | round | `push_round`, `MaterialiseOutcome.round`, the per-root rounds of `EphContext` |
-| shard over \(R\) — \(\mathrm{Sh}_c(R)\) | base | `base_hash`, `root_salted_hash`, tag `base-rooted-v2`, `BaseLayerRef`, `base_id` |
-| shard over \(\ell\) — \(\mathrm{Sh}_c(\ell)\) | per-layer node | `per_layer_hash`, tag `eph-perlayer-v1` |
-| selection shard \(S_c\) | supplement | `supplement_extra`, `supplement_hash`, tag `eph-supplement-v1`, `chain_last` |
 
 ## Where to read more
 

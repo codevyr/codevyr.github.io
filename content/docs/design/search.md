@@ -217,13 +217,12 @@ codepoint against `[A-Za-z0-9_]`.
 ## Cache key composition
 
 Every `search(...)` call materialises an ephemeral layer whose **root shard**
-(code: base) is keyed by the inputs that affect its output — and,
-deliberately, **not** by the other
-ephemeral layers in the context. This is not an exception to the rule that every
+is keyed by the inputs that affect its output — and, deliberately, **not** by
+the other ephemeral layers in the context. This is not an exception to the rule that every
 layer's key folds its parent's identity: the root shard's *parent is the root layer*,
 so upstream ephemeral layers never enter its key by construction, and the same
 query hits the cache under any upstream context. (The context-dependent delta
-lives in the selection shard (code: supplement), whose parent — and therefore key — is the previous
+lives in the selection shard, whose parent — and therefore key — is the previous
 statement's spine tip; see [The Layer Tree](/docs/design/layer-tree).) The
 root-shard hash folds, in order:
 
@@ -246,7 +245,7 @@ leaf. When a leaf's semantics change (e.g., `ProjectFilterMixin`'s project name)
 the whole root-shard hash changes and the cache falls through to a fresh population.
 
 The executor then materialises the layer **per visible root**, salting the
-root-shard hash with the root's identity (`root_salted_hash`) so each
+root-shard hash with the root's identity (`root_shard_hash`) so each
 project's root shard is
 cached independently of which other projects are co-visible. Because this
 root shard is parented on the root, an ephemeral layer added upstream
@@ -263,7 +262,7 @@ search-specific.
    "search"    query      flags       limit    CompositeFilter
       └──────────┴──────────┴───────────┴───────────┘
                             │
-              root_salted_hash(root, base_hash)   ── per visible root
+              root_shard_hash(root, input_hash)   ── per visible root
                             │
                     with_eph_layer(hash, EphLayerKind::Search)
                             │

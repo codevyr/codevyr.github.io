@@ -110,7 +110,7 @@ is a function of the inputs that determine its contents, and it carries a `UNIQU
 index. Materialising a layer is therefore a single upsert:
 
 ```
-create_eph_layer(parent_id, base_id, hash, kind):
+create_eph_layer(parent_id, root_shard_id, hash, kind):
     INSERT INTO layers (hash, ...) VALUES (...)
     ON CONFLICT (hash) DO UPDATE SET last_used = now()
     RETURNING id, (xmax = 0) AS created, populated
@@ -189,22 +189,22 @@ between them:
 
 - **The root shard is chain-independent.** A root layer's identity — a
   project's committed index — does not depend on any query's ephemeral chain, so
-  `f(root)` is keyed by `root_salted_hash(root, command_inputs)` and nothing else.
+  `f(root)` is keyed by `root_shard_hash(root, command_inputs)` and nothing else.
   It is cached once and reused under every chain and every co-visible set of
   projects. This matters because, for a content populate, the root shard does all the
   expensive work (for `search`, the corpus scan). Salting per *root* (not per visible set)
   means identical inputs against different projects key different shards, and a
   project's shard is reused no matter which other projects are co-visible.
-  The code names this shard the **base** (`base_hash`, `root_salted_hash`).
-- **A layer shard (code: the per-layer node) is keyed on its layer.** `f(Lₖ)` keys on
-  that layer's id, so it is reused exactly when `Lₖ` is visible again —
+  In the code: `root_shard_populate`, keyed by `root_shard_hash(root, input_hash)`.
+- **A layer shard is keyed on its layer.** `f(Lₖ)` keys on that layer's id,
+  so it is reused exactly when `Lₖ` is visible again —
   extending the visible set re-materialises only the new layer's shard; every
   older shard is a hit. Layer shards are **lifetime-agnostic**: a future *persistent*
   delta layer rides the same mechanism, its layer shards simply becoming durable
   cache wins ("the root shard scans the heavy corpus" is a cost assumption — deltas
   are assumed light).
 
-The third node kind, the **selection shard** (code: supplement), holds whatever does not decompose
+The third node kind, the **selection shard**, holds whatever does not decompose
 per layer (see below); together root shard, layer shard, and selection shard are the three node
 kinds of the [layer tree](/docs/design/layer-tree/#3-partitioning-the-three-node-kinds).
 
@@ -225,7 +225,7 @@ becomes observable once ephemeral layers carry content.
 A pure content shard `f(Lₖ)` depends only on the command's inputs and the rows on
 `Lₖ`. Some operations depend on *more*: a `layer { … }` block's ops can name
 specific ephemeral ids from earlier in the chain, so that shard's contents depend
-on those referenced ids, not on a single layer alone. **`supplement_extra`** is
+on those referenced ids, not on a single layer alone. **`selection_extra`** is
 that extra key material — whatever a shard reads *beyond* the one layer it is
 over. It is empty for content populates (`search`, `loc`); it is non-empty only for
 ops that reference ephemeral ids, which are then keyed on those ids too, so a
@@ -258,8 +258,8 @@ change (a different project name, say), the whole root-shard hash changes and th
 falls through to a fresh population. Any new filter that constrains objects gets
 this for free — no per-filter branch in the caching code.
 
-Every hash also begins with a **domain tag** — `b"base-rooted-v2"`,
-`b"eph-supplement-v1"`, and so on. The tags keep the different key families
+Every hash also begins with a **domain tag** — `b"root-shard-v1"`,
+`b"selection-shard-v1"`, and so on. The tags keep the different key families
 disjoint from one another and from raw verb hashes, and they carry a version. On
 a keying change the tag is bumped (`v1 → v2`); old entries simply never hit again
 and age out via TTL, so an upgrade needs **no cache purge** — stale rows are
@@ -277,7 +277,7 @@ An ephemeral layer's life is bounded three ways:
   (`parent_id ON DELETE CASCADE`) **and the data rows tagged with it** — every
   data table's `layer` FK cascades, so purging a layer drops its objects,
   symbols, instances, and refs in one step rather than leaving them dangling.
-  Separately, an eph-layer shard's `base_id` couples its lifetime to the root
+  Separately, an eph-layer shard's `root_shard_id` couples its lifetime to the root
   shard it was cached against — so it can never outlive, and mis-hit against, a
   recreated root shard of a different incarnation.
 
@@ -291,8 +291,8 @@ every purge.
 
 ## Correctness invariants, summarised
 
-- **The root shard (code: base) is a function of `(root identity, verb
-  inputs)` only** — its parent in the [layer tree](/docs/design/layer-tree) is
+- **The root shard is a function of `(root identity, verb inputs)` only** —
+  its parent in the [layer tree](/docs/design/layer-tree) is
   the root, so no other ephemeral layer enters its key. This is what makes it
   reusable across every context, and the property that the per-root salt and
   the domain tag exist to protect.
