@@ -254,4 +254,6 @@ obvious; the last for one verb end to end, in SQL and in milliseconds.
 - **[search()](/docs/design/search)** — turning a literal string into
   byte-range matches over the whole corpus, without regex and with
   byte-exact positions: the abstractions above cashed out against real
-  SQL and real numbers.
+  SQL and real numbers. Its helper's full body and the measurements
+  behind its claims are in
+  [search(): Implementation Notes](/docs/design/search-appendix).
