@@ -39,7 +39,7 @@ Each statement then runs three phases before the next one starts
    Capped id probes find which substatements are small enough to
    enumerate exactly, and refinement waves let one selective leaf drive
    the rest of the query
-   ([Cost-Based Execution](/docs/design/cost-based-execution)) — this is
+   ([Planning from Measured Cardinality](/docs/design/planning)) — this is
    what keeps a query like `mod("amdgpu") { func { "drm_dev_enter" } }`
    from resolving millions of rows it will immediately discard.
 3. **Read.** Each command reads its rows under the layers now visible,
@@ -121,7 +121,7 @@ The design pages use these terms with fixed meanings:
   [Queries and their Meaning](/docs/design/semantics) for composition and
   weakness, then [Evaluating the Fixpoint](/docs/design/evaluation) for
   how that meaning is computed and
-  [Cost-Based Execution](/docs/design/cost-based-execution) for how it is
+  [Planning from Measured Cardinality](/docs/design/planning) for how it is
   computed cheaply.
 - **To understand how results are stored and reused**, read
   [Layers and layer operations](/docs/design/layers) for the data model,
@@ -144,9 +144,9 @@ The design pages use these terms with fixed meanings:
 - **[Evaluating the Fixpoint](/docs/design/evaluation)** — the phases a
   statement runs, and the monotone worklist that composes
   neighbouring substatements to a fixpoint.
-- **[Cost-Based Execution](/docs/design/cost-based-execution)** —
-  planning from measured cardinality: anchors, capped id probes, and
-  the refinement waves that let one selective leaf drive a query.
+- **[Planning from Measured Cardinality](/docs/design/planning)** —
+  anchors, capped id probes, and the refinement waves that let one
+  selective leaf drive a query.
 
 **Storing and reusing results**
 

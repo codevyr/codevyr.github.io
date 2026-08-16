@@ -57,7 +57,7 @@ snapshot and appends the resulting layers as one atomic materialisation
 ([Layers §5](/docs/design/layers/#materialisations)). **Probe** then
 measures before anything is read in full, so that a selective leaf can
 drive the rest of the query
-([Cost-Based Execution](/docs/design/cost-based-execution)). Neither
+([Planning from Measured Cardinality](/docs/design/planning)). Neither
 changes the loop below: probing only ever hands it smaller, exact
 inputs.
 
@@ -201,7 +201,7 @@ the four vocabularies has a word for.
 - [Queries and their Meaning](/docs/design/semantics) — what the
   fixpoint computed here means, and where the initial selections'
   predicate comes from.
-- [Cost-Based Execution](/docs/design/cost-based-execution) — the probe
+- [Planning from Measured Cardinality](/docs/design/planning) — the probe
   phase, and how it shrinks the loop's inputs.
 - [Layers and layer operations](/docs/design/layers) — the materialise
   phase, and the visibility each read runs under.

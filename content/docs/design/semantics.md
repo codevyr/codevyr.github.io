@@ -241,7 +241,7 @@ $$N_c \;\subseteq\; \text{read} \;\subseteq\; D(c)$$
 The upper bound is why a read is worth caching where a selection is not
 ([From Result to Cache §5](/docs/design/derivation/#upper-bound)), and
 making it tight is the whole business of
-[Cost-Based Execution](/docs/design/cost-based-execution).
+[Planning from Measured Cardinality](/docs/design/planning).
 
 ## 8. Dependency kinds {#dependency-kinds}
 
@@ -347,8 +347,8 @@ by construction, and the propagation rule above decides the rest.
 
 - [Evaluating the Fixpoint](/docs/design/evaluation) — how §7's fixpoint
   is computed, and why the computation stops.
-- [Cost-Based Execution](/docs/design/cost-based-execution) — using
-  anchors and measured cardinality to make a read tight.
+- [Planning from Measured Cardinality](/docs/design/planning) — anchors,
+  capped probes, and how a read is made tight.
 - [Partitioning a Materialisation](/docs/design/shards) — the forest
   \(f_c\) is split across, and the theorems the split satisfies.
 - [Layer Keys and Hashing](/docs/design/layer-keys) — how \(F_c\) and

@@ -1,34 +1,42 @@
 ---
-title: "Cost-Based Execution"
-description: "A formal model of query planning from measured cardinality: denotations, anchors, capped probes, and semi-join refinement with its soundness argument"
+title: "Planning from Measured Cardinality"
+description: "Why syntax cannot predict how much of the index a query touches, and how the engine measures before it reads: anchors, capped id probes, and semi-join refinement with its soundness argument"
 weight: 115
+aliases:
+  - /docs/design/cost-based-execution/
 ---
 
-The askl engine plans query execution from **measured cardinality**, not from
-syntax. This page gives the model formally: substatements as predicate
-denotations, anchoring as static eligibility, probes as exact bounded
-evaluation, refinement as semi-join propagation — and the properties the
-scheme rests on: probe *exactness*, refinement *soundness* against the
-composition semantics, and *termination*. Implementation notes and measured
-results follow.
+Nothing in a query's syntax says how much of the index it will touch.
+`func` and `mod("amdgpu")` have the same shape and differ by six orders
+of magnitude, and which of them ought to drive a query depends on the
+index it runs against rather than on how it was written. So the engine
+measures first: it asks the index how large each substatement is —
+cheaply, and with a bound on the effort — and lets whatever turns out to
+be small drive the rest. This page gives that scheme: anchoring as static
+eligibility, probes as exact bounded evaluation, refinement as semi-join
+propagation, and the three properties it rests on — probe *exactness*,
+refinement *soundness* against the composition semantics, and
+*termination*.
 
 ## 1. Motivation {#motivation}
 
-The engine previously carried a selector/filter split that was a
-hand-written query plan: selectors initiated SQL, filters contributed WHERE
-fragments, and the choice between them was made by the *user*, through
-syntax (`func` vs `func("name")` and an explicit `filter=` toggle). The plan
-was therefore fixed before any cardinality was known. For
+A query language has to decide who chooses the plan, and the cheapest
+answer is to let the syntax carry it. Split a command's conditions into
+*selectors*, which initiate SQL, and *filters*, which contribute WHERE
+fragments; let the user pick between them by how a condition is written
+(`func` versus `func("name")`, plus an explicit `filter=` toggle). The
+tension is that the plan is then fixed before any cardinality is known,
+and the user who now owns it does not know the cardinalities either. For
 
 ```askl
 mod("amdgpu") { func { "drm_dev_enter" } }
 ```
 
-the engine could not see that the leaf denotes a handful of rows and
-everything else should be derived from it; it resolved the bare `func`
-condition into millions of ids, one SQL statement returned 2.67 M rows
-(1.8 GB), and the query took 53.7 s. Under the model below the same query
-returns the identical result from kilobyte-sized, index-driven SQL
+such an engine cannot see that the leaf denotes a handful of rows and
+that everything else should be derived from it. It resolves the bare
+`func` condition into millions of ids, one SQL statement returns 2.67 M
+rows (1.8 GB), and the query takes 53.7 s. Under the model below the same
+query returns the identical result from kilobyte-sized, index-driven SQL
 statements.
 
 ## 2. Model {#model}
@@ -195,19 +203,13 @@ exact inputs.
 ## 8. Implementation notes {#implementation-notes}
 
 The probe SQL was validated with `EXPLAIN ANALYZE` against a production
-index (5.9 M symbols, 23.3 M references) before the engine work, and three
-times the PostgreSQL planner needed help:
-
-- **REFS roles** work as plain `IN`-subqueries, driven through the
-  `to_symbol` / `from_object` indexes.
-- **HAS (containment) roles** must be `MATERIALIZED` CTEs: as
-  `IN`-subqueries the planner refused to drive the probe from the tiny
-  role set (1.8–10.6 s against full-table scans); materialised first, the
-  outer query runs id-driven (0.5–6.9 ms).
-- The **parents display query** needed a redundant semi-join —
-  `sr.to_symbol IN (SELECT symbol FROM symbol_instances WHERE id = ANY(…))`,
-  implied by its own joins — to stop a full reference-table hash-join
-  (933 ms → 10 ms for a zero-row result).
+index (5.9 M symbols, 23.3 M references) before any engine work, and one
+of its lessons is design rather than tuning: containment roles have to be
+handed to the database as materialised subqueries, because otherwise its
+planner declines to drive the probe from the tiny role set and scans the
+containment tables in full instead (seconds, against milliseconds when
+the small side drives) — a role only pays if it is what the read is
+driven from.
 
 Probes run in combined visibility through the in-RAM SQL cache, so repeat
 and refinement probes are cache hits. All id binds are canonicalised
@@ -218,24 +220,25 @@ guaranteed misses.
 
 ## 9. Evaluation {#evaluation}
 
-The §1 query, byte-identical output at every stage:
+The §1 query, byte-identical output at both ends:
 
 | Stage | Latency |
 |--:|--:|
 | syntax-directed baseline | 53.7 s |
-| probes + refinement + probe-informed scopes | 5.7 s |
-| smallest-neighbour binding + scoped containment families | 1.2 s |
-| canonical cache binds + parents probe route | ≈0.3 s |
+| planning from measured cardinality | ≈0.3 s |
 
-## 10. Configuration and observability {#configuration-and-observability}
+Between the two rows lie probes and refinement (§4–§5), the
+smallest-neighbour binding rule that stops a broad neighbour from costing
+more than it narrows, resolved ids substituted into scopes (§7), and the
+two database details of §8 — materialised containment roles and canonical
+id binds.
 
-- `--probe-cap` / `ASKL_PROBE_CAP` (default 1000): the cap \(k\) of §4, and so the resolution
-  threshold. `0` disables resolution — every probe caps and reads stay
-  predicate-driven.
-- Every probe records a `ProbeActivation` (substatement text, resolved
-  count or capped, wave number) on the execution context — the hook tests
-  and diagnostics use to assert which substatements probed, when, and how
-  they classified.
+## 10. Configuration {#configuration}
+
+`--probe-cap` / `ASKL_PROBE_CAP` (default 1000) sets the cap \(k\) of §4,
+and with it the resolution threshold. `0` disables resolution outright:
+every probe caps, and every read stays predicate-driven — the state the
+rest of this page argues against, kept reachable so it can be measured.
 
 ## 11. Prior art {#prior-art}
 

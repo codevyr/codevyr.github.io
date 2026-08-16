@@ -86,8 +86,8 @@ statement of a long query and every other command's read is
 cache untouched. Two consequences follow. Interactive editing gets
 cheap, which is what the cache is for; and it pays to make \(P(c)\)
 *tight* rather than merely correct, which is what
-[cost-based execution](/docs/design/cost-based-execution) does by
-measuring cardinality with capped probes before committing to a plan.
+the [planner](/docs/design/planning) does by measuring cardinality with
+capped probes before committing to a plan.
 
 ## 6. Visibility joins the key {#visibility}
 
@@ -152,6 +152,6 @@ name guarantees is
 ## Where to read more
 
 - [Evaluating the Fixpoint](/docs/design/evaluation) — the fixpoint of §3.
-- [Cost-Based Execution](/docs/design/cost-based-execution) — making §5's bound tight.
+- [Planning from Measured Cardinality](/docs/design/planning) — making §5's bound tight.
 - [Caching](/docs/design/caching) — the two tiers of §7.
 - [Partitioning a Materialisation](/docs/design/shards) — the split of §9.
