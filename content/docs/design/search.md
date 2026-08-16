@@ -216,34 +216,55 @@ codepoint against `[A-Za-z0-9_]`.
 
 ## Cache key composition
 
-Every `search(...)` call materialises an ephemeral layer keyed by the inputs
-that affect its output. The hash inputs are, in order:
+Every `search(...)` call materialises an ephemeral layer whose **root shard**
+(code: base) is keyed by the inputs that affect its output — and,
+deliberately, **not** by the other
+ephemeral layers in the context. This is not an exception to the rule that every
+layer's key folds its parent's identity: the root shard's *parent is the root layer*,
+so upstream ephemeral layers never enter its key by construction, and the same
+query hits the cache under any upstream context. (The context-dependent delta
+lives in the selection shard (code: supplement), whose parent — and therefore key — is the previous
+statement's spine tip; see [The Layer Tree](/docs/design/layer-tree).) The
+root-shard hash folds, in order:
 
-- `parent_id` of the eph_layer (the layer above in the current query's chain)
-- the literal bytes `"search"` — variant discriminator
+- the literal bytes `"search"` — the verb discriminator
 - the query byte-length followed by the query bytes
 - `case_sensitive` as one byte
 - `whole_word` as one byte
 - `limit` as a little-endian 64-bit int
+- the **fused container scope**: `scope:none` when unscoped, else the
+  scope's condition hash and/or its sorted resolved instance ids — a
+  scope-fused scan reads the container's ranges, so the key must name them
+  (see [Layer Keys §5](/docs/design/layer-keys/#5-scope-fusion))
 - `CompositeFilter::hash_into(&mut Sha256)` — the full recursive hash of the
   surrounding command's filter set
 
 The last input is what makes the cache filter-aware without special-casing
 individual filter types. `CompositeFilter::hash_into` walks the And/Or/Not/Leaf
 tree, mixing in a discriminator byte per variant and a canonical hash of each
-leaf. When a leaf's semantics change (e.g., `ProjectFilterMixin`'s project
-name), the whole eph_layer hash changes and the cache falls through to a fresh
-population.
+leaf. When a leaf's semantics change (e.g., `ProjectFilterMixin`'s project name),
+the whole root-shard hash changes and the cache falls through to a fresh population.
+
+The executor then materialises the layer **per visible root**, salting the
+root-shard hash with the root's identity (`root_salted_hash`) so each
+project's root shard is
+cached independently of which other projects are co-visible. Because this
+root shard is parented on the root, an ephemeral layer added upstream
+can't invalidate it — the corpus scan is computed once and reused everywhere. How
+the executor shards the content map by layer, per-root salting, and the two-phase
+`populated` guard are general machinery covered in
+[Design: Caching](/docs/design/caching); the rest of this section is
+search-specific.
 
 ```
-                     Hash inputs (SHA-256)
+                  Root-shard hash inputs (SHA-256)
                             │
-      ┌─────────────────────┴───────────────────────┐
-      │                                             │
-   parent_id      "search"                query   flags   limit    CompositeFilter
-      │              │                      │       │       │             │
-      └──────────────┴──────┬───────────────┴───────┴───────┴─────────────┘
-                            ▼
+      ┌──────────┬──────────┼───────────┬───────────┐
+   "search"    query      flags       limit    CompositeFilter
+      └──────────┴──────────┴───────────┴───────────┘
+                            │
+              root_salted_hash(root, base_hash)   ── per visible root
+                            │
                     with_eph_layer(hash, EphLayerKind::Search)
                             │
       ┌─────────────────────┴──────────────────────┐
@@ -255,7 +276,7 @@ population.
       │                                    ├─ group matches by project_id
       │                                    ├─ insert EphSymbolRow per project
       │                                    ├─ insert EphInstanceRow per byte range
-      │                                    └─ persist eph_layers.truncated
+      │                                    └─ persist layers.truncated
       │                                             │
       └──────────────────┬──────────────────────────┘
                          │
@@ -263,7 +284,7 @@ population.
 ```
 
 On a cache hit, the populate closure never runs; the caller reads
-`eph_layers.truncated` to reconstruct any warning that was persisted with the
+`layers.truncated` to reconstruct any warning that was persisted with the
 layer. This is what keeps `truncated` visible on repeat calls even though the
 warning message itself lives in Rust.
 
@@ -326,7 +347,7 @@ The verb accepts a `limit=N` parameter (default `500`). Enforcement is a SQL
 set `truncated = true`. The extra row is what distinguishes "hit the limit
 exactly" from "we truncated".
 
-`truncated` is persisted onto the `eph_layers` row (a small boolean column
+`truncated` is persisted onto the `layers` row (a small boolean column
 added alongside `populated`), so cache hits carry the same information as
 cache misses. When the caller receives a `truncated: true`, it asks the
 originating selector to reconstruct the warning:
@@ -347,14 +368,17 @@ alongside the cached rows.
 The eph_layer cache is scoped to a single logical corpus state. When a project
 is re-uploaded, `IndexStore::finalize_project` — the transaction that flips
 `upload_status` to `Complete` — also calls `purge_eph_cache`, which drops every
-non-canary `eph_layers` row atomically with the upload commit. This
-guarantees that a subsequent `search(...)` sees the new state, not stale
-matches from before the re-upload.
+non-canary `layers` row atomically with the upload commit. This guarantees
+that a subsequent `search(...)` sees the new state, not stale matches from before
+the re-upload.
 
-There's no per-project TTL and no versioned cache key. The finalize step is
-the sole invalidation trigger. This keeps the cache correctness argument
-short: the eph_layer only ever reflects a corpus state that was current when
-it was populated, and it's discarded the moment that state changes.
+Re-upload is the *hard* invalidation — it keeps the correctness argument short: a
+search's layer only ever reflects a corpus state that was current when it was
+populated, and it's discarded the moment that state changes. It is not the only
+bound on a cached search, though: layers also age out by TTL and LRU, and a
+change to how keys are computed is handled by bumping a versioned domain tag
+rather than purging. Those general lifetime mechanisms are covered in
+[Design: Caching](/docs/design/caching).
 
 ## Performance characteristics
 
