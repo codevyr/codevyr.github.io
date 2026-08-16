@@ -671,7 +671,7 @@ search("EXPORT_SYMBOL", whole_word="true", limit=2000)
     /* Higher limit for a common macro */
 ```
 
-See **[Design: search()](/docs/design/search)** for the full architecture — the four SQL variants, the pg_trgm / tsvector pipeline, the byte-offset PL/pgSQL helper, and the correctness invariant across filter compositions. The results `search()` produces live on a per-query **ephemeral layer**; see **[Design: Layers](/docs/design/layers)** for that data model and **[Design: Caching](/docs/design/caching)** for how repeat and composed queries are kept cheap.
+See **[search()](/docs/design/search)** for the full architecture — the four SQL variants, the pg_trgm / tsvector pipeline, the byte-offset PL/pgSQL helper, and the correctness invariant across filter compositions. The results `search()` produces live on a per-query **ephemeral layer**; see **[Layers](/docs/design/layers)** for that data model and **[Caching](/docs/design/caching)** for how repeat and composed queries are kept cheap.
 
 ### forced (Override Relationships)
 

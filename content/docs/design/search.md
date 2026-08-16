@@ -1,5 +1,5 @@
 ---
-title: "Design: search()"
+title: "search()"
 description: "How the search() verb turns a literal-string query into byte-range matches over the whole indexed corpus, without regex, with byte-exact positions, and with a correctness invariant across filter compositions"
 weight: 160
 ---
@@ -252,7 +252,7 @@ root shard is parented on the root, an ephemeral layer added upstream
 can't invalidate it — the corpus scan is computed once and reused everywhere. The
 partition into shards and the per-root salting are general machinery
 ([Partitioning a Materialisation](/docs/design/shards)), as is the two-phase
-`populated` guard ([Design: Caching](/docs/design/caching)); the rest of this
+`populated` guard ([Caching](/docs/design/caching)); the rest of this
 section is search-specific.
 
 ```
@@ -377,7 +377,7 @@ populated, and it's discarded the moment that state changes. It is not the only
 bound on a cached search, though: layers also age out by TTL and LRU, and a
 change to how keys are computed is handled by bumping a versioned domain tag
 rather than purging. Those general lifetime mechanisms are covered in
-[Design: Caching](/docs/design/caching).
+[Caching](/docs/design/caching).
 
 ## Performance characteristics
 

@@ -1,5 +1,5 @@
 ---
-title: "Design: The Command Algebra"
+title: "The Command Algebra"
 description: "How verbs fold into a command — override vs accumulate — and how filters and content populates combine into the predicate and the content map"
 weight: 135
 ---

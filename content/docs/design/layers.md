@@ -1,5 +1,5 @@
 ---
-title: "Design: Layers and layer operations"
+title: "Layers and Layer Operations"
 description: "The layer data model — layer kinds and lifetimes, how a query decides what it can see, the operations that create ephemeral layers, and the isolation guarantee that keeps queries from leaking rows into one another"
 weight: 138
 ---
@@ -17,7 +17,7 @@ layers, and how askl guarantees that one query can never see another's rows. For
 how a statement's layers are carved into independently cached shards, see
 [Partitioning a Materialisation](/docs/design/shards); for the cache tiers
 themselves — content-addressed hashing, the two-phase guard, and lifetime — see
-[Design: Caching](/docs/design/caching).
+[Caching](/docs/design/caching).
 
 ## 1. Why ephemeral layers exist
 
@@ -42,7 +42,7 @@ persistent and ephemeral rows alike — a query can't tell, and doesn't need to,
 which layer a row came from. There is exactly one implementation of each filter,
 and it lives in SQL. The price of the approach — intermediate results are
 materialised as rows, and therefore have to be cached — is what the rest of this
-document and [Design: Caching](/docs/design/caching) are about.
+document and [Caching](/docs/design/caching) are about.
 
 ## 2. What a layer is
 
@@ -69,7 +69,7 @@ symbol_refs       { id, ..., layer }
 
 `content_store` — the raw file bytes — is the one table with **no** layer
 column: it is content-addressed by `content_hash` and shared across projects and
-layers (see [Design: search()](/docs/design/search)). Everything else that a
+layers (see [search()](/docs/design/search)). Everything else that a
 query can select, filter, or walk carries a layer.
 
 Because every row carries its layer, "which rows does this query see?" reduces to
@@ -213,7 +213,7 @@ to run it over. Today it reads the persistent (root) layers; the same populate i
 what future ephemeral *content* layers will flow through automatically. How the
 executor splits that populate into shards is
 [Partitioning a Materialisation](/docs/design/shards); how the shards are stored,
-keyed, and invalidated is [Design: Caching](/docs/design/caching).
+keyed, and invalidated is [Caching](/docs/design/caching).
 
 ### 6.2. `layer { … }` — the manual constructor
 
@@ -274,7 +274,7 @@ cascades both to its child layers (`parent_id`) and to every data row tagged wit
 it (each data table's `layer` FK cascades), so a purge never leaves orphaned
 objects, symbols, instances, or refs behind. The full lifetime story —
 content-addressing, the two-phase `populated` guard, LRU, and TTL — is in
-[Design: Caching](/docs/design/caching).
+[Caching](/docs/design/caching).
 
 ## 9. Composition is union; masking is future
 

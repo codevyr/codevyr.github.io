@@ -122,7 +122,7 @@ The design pages use these terms with fixed meanings:
   [Layer Keys and Hashing](/docs/design/layer-keys) and
   [Caching](/docs/design/caching) for the mechanics.
 - **To understand one verb end to end**, read
-  [Design: search()](/docs/design/search).
+  [search()](/docs/design/search).
 
 ## Pages
 
@@ -157,6 +157,6 @@ The design pages use these terms with fixed meanings:
 
 **One verb in depth**
 
-- **[Design: search()](/docs/design/search)** — turning a literal
+- **[search()](/docs/design/search)** — turning a literal
   string into byte-range matches over the whole corpus, without regex
   and with byte-exact positions.

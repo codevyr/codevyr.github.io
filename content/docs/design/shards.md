@@ -1,5 +1,5 @@
 ---
-title: "Design: Partitioning a Materialisation"
+title: "Partitioning a Materialisation"
 description: "How a statement's materialisation is split into independently cached shards, and what their keys guarantee"
 weight: 140
 aliases:
@@ -470,4 +470,4 @@ per output.
 - [The Command Algebra](/docs/design/command-algebra)
 - [Layers and layer operations](/docs/design/layers)
 - [Caching](/docs/design/caching)
-- [Design: search()](/docs/design/search)
+- [search()](/docs/design/search)

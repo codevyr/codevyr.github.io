@@ -1,5 +1,5 @@
 ---
-title: "Design: Layer Keys and Hashing"
+title: "Layer Keys and Hashing"
 description: "How a command's verbs, filters, and context become the cache keys of the layer forest"
 weight: 145
 ---
@@ -52,7 +52,7 @@ Two details, each worth its own sentence:
   children's hashes.
 
 Two filters hash equally exactly when they are the same tree
-([Design: search()](/docs/design/search/#cache-key-composition) gives the
+([search()](/docs/design/search/#cache-key-composition) gives the
 byte layout). This is the *only* filter-awareness mechanism in the whole
 cache — no filter type is special-cased anywhere.
 

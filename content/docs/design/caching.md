@@ -1,5 +1,5 @@
 ---
-title: "Design: Caching"
+title: "Caching"
 description: "How askl caches expensive work so repeat and composed queries stay cheap — the content-addressed source store, the two request-time tiers, and the invariants that stop a cached answer from outliving the state it was computed from"
 weight: 150
 ---
@@ -226,4 +226,4 @@ every purge.
   state that no longer exists.
 - **Cross-project shared content stays scoped.** Deduplicated `content_store`
   rows are disambiguated by the object's project, bound into the query — see
-  [Design: search()](/docs/design/search) for the invariant and its test.
+  [search()](/docs/design/search) for the invariant and its test.

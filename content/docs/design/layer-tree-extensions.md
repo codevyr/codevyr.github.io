@@ -1,5 +1,5 @@
 ---
-title: "Design: Layer Tree Extensions"
+title: "Layer Tree Extensions"
 description: "Two generalisations of the layer tree that need no new machinery: multiple visible roots, and content on non-root layers including persistent deltas"
 weight: 141
 ---
