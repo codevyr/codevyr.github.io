@@ -4,6 +4,7 @@ description: "How a statement's materialisation is split into independently cach
 weight: 140
 aliases:
   - /docs/design/layer-tree/
+  - /docs/design/layer-tree-extensions/
 ---
 
 A statement's **materialisation** is the set of rows its layer-creating
@@ -21,7 +22,10 @@ So the storage takes the shape the caching problem dictates, and this
 page derives it: §1 fixes the notation, §2 states the axiom a verb must
 satisfy for the split to lose nothing, §3 carves the materialisation and
 gives each part the key it earns, and §4 says why those keys can be
-trusted; a worked example and the operating rules follow. For where
+trusted; a worked example and the prior art close the page. The cache at
+issue throughout is the database-backed one, shared across processes and
+queries; the separate in-memory cache over *read* results plays no part
+in the argument ([Caching](/docs/design/caching/#two-tiers)). For where
 materialisation sits in the pipeline, see
 [the life of a query](/docs/design/overview/#the-life-of-a-query).
 
@@ -32,59 +36,61 @@ garbage collection — belongs to
 [Layers and layer operations](/docs/design/layers). This section fixes
 only the symbols the argument uses.
 
-**Layers and content.** The layer universe \(L\) is a set of nodes, each
-\(\ell \in L\) carrying a **parent** \(\pi(\ell)\), undefined for a root
-layer, so \(\pi\) induces a forest with one tree per root; a **key**
-\(\kappa(\ell)\), a cryptographic hash that is its cache identity; and
-**content** \(C(\ell)\), the rows physically stored on it — indexed
-facts (a symbol, an instance of it, a reference to it) and, on a root,
-the indexed source text those facts came from. Every stored row carries
-the layer it lives on — **one row, one layer** — so distinct layers'
-contents are pairwise disjoint and every union below is a genuine
-partition.
+**Layers and content.** \(C(\ell)\) is the **content** of a layer
+\(\ell\): the rows physically stored on it — indexed facts (a symbol, an
+instance of it, a reference to it) and, on a root, the indexed source
+text those facts came from. Every stored row carries the layer it lives
+on — **one row, one layer** — so distinct layers' contents are pairwise
+disjoint and every union below is a genuine partition.
 
-**Roots and slices.** \(R_p\) is project \(p\)'s **root layer**, carrying
-a stored **identity hash** \(h(R_p)\) that names the committed index
-state it stands for (§4 makes that naming precise); a query runs against
-a set of visible roots \(\mathcal{R}\) together with each root's
-persistent closure — today just the root itself
-([Layers](/docs/design/layers/#kinds-and-lifetimes)). Write
-\(\Lambda_t(R)\) for the ordered **slice** visible on \(R\)'s project
-after statement \(t\): that closure, followed by the materialisations of
-statements \(1 \dots t\) in order. A query's visibility is the union of
-the per-project slices; everything below works within one slice, and
-[Layer Tree Extensions](/docs/design/layer-tree-extensions) handles
-several projects at once. Existing layers, the root included, are never
-written — a materialisation only ever adds nodes.
+**Roots and slices.** \(R\) is a project's **root layer**, carrying a
+stored **identity hash** \(h(R)\) that names the committed index state
+it stands for (§4 makes that naming precise). Write \(\Lambda_t(R)\) for
+the ordered **slice** visible on that project after statement \(t\): the
+project's persistent closure — today just \(R\) itself
+([Layers](/docs/design/layers/#kinds-and-lifetimes)) — followed by the
+materialisations of statements \(1 \dots t\) in order. Existing layers,
+the root included, are never written; a materialisation only ever adds
+nodes.
 
 **Statements and materialisations.** A query evaluates layer-creating
 top-level statements \(t = 1, 2, \dots\) in source order, and each
-produces exactly **one** materialisation per visible root — one
-altogether in the single-project case this page runs in. Within the
-statement the layer-creating unit is the *command*: each layer-bearing
-command \(c\) — the statement's own or a nested substatement's —
-contributes one **node group**, and the materialisation is the union of
-those groups. Nesting never sequences — the statement separator is the
-only time axis ([terminology](/docs/design/overview/#terminology)) — and
-every populate of statement \(t\) reads the slice as it stood after
-statement \(t-1\), never a statement-mate's layers.
+produces one **materialisation**. Within the statement the
+layer-creating unit is the *command*: each layer-bearing command \(c\) —
+the statement's own or a nested substatement's — contributes one **node
+group**, and the materialisation is the union of those groups. Nesting
+never sequences — the statement separator is the only time axis
+([terminology](/docs/design/overview/#terminology)) — and every populate
+of statement \(t\) reads the slice as it stood after statement \(t-1\),
+never a statement-mate's layers.
 
-**The input hash.** Each command is summarised in one canonical **input
-hash** \(H(c)\), built so that two commands with equal \(H(c)\) are
-semantically identical. How \(H(c)\) is assembled is its own subsystem
-([Layer Keys and Hashing](/docs/design/layer-keys)); here we use only
-two of its properties: \(H(c)\) names every input the command's
+**Several projects at once.** A query runs against a set of visible
+roots \(\mathcal{R}\), and a statement materialises for all of them **in
+lockstep**: statement \(t\) appends one materialisation per root,
+atomically. What the query binds is the union of the per-project slices,
+
+$$V_t \;=\; \bigcup_{R \,\in\, \mathcal{R}} \Lambda_t(R)$$
+
+and because those materialisations land together, the per-root spines
+stay parallel and \(V_t\) is always a coherent snapshot. No node's
+content is a function of another root's content, so cross-root state
+never enters a key: the rest of the page works inside one slice, and
+every symbol in it carries a silent \(R\).
+
+**Borrowed symbols.** The command's **combined populate** \(U_c\),
+which maps an input slice to every row the command's content verbs write
+for it, and the **content map** \(f_c = \sigma_{F_c} \circ U_c\), which
+conjoins the command's combined filter \(F_c\), are
+[Queries and their Meaning](/docs/design/semantics/#content-map)'s: the
+engine stores the \(U_c\)-image and reads observe \(f_c\), so the algebra
+below runs over \(U_c\) and \(f_c\) reappears where reads do (§3).
+Hashes are [Keys](/docs/design/layer-keys)': \(\kappa(\ell)\) is the
+cryptographic **node key** that is a layer's cache identity, and
+\(H(c)\) the canonical **input hash** that summarises a command so that
+equal hashes mean semantically identical commands. The single property
+of \(H(c)\) used here is that it names every input the command's
 populates read *except the layer contents they are aimed at* — those are
 named by the node keys of §3 — and nothing else.
-
-**Stored and observed content.** The command's **combined populate**
-\(U_c\) maps an input slice — some layers' content rows — to every
-row its content verbs write for it; the **content map**
-\(f_c = \sigma_{F_c} \circ U_c\) conjoins the combined filter \(F_c\)
-([Queries and their Meaning §5](/docs/design/semantics/#content-map)).
-The engine stores the \(U_c\)-image and reads observe \(f_c\); since
-\(C(\cdot)\) means stored rows the algebra below runs over \(U_c\),
-and \(f_c\) reappears where reads do (§3).
 
 ## 2. Verb semantics and the decomposition axiom {#decomposition-axiom}
 
@@ -128,13 +134,6 @@ built from earlier statements' selections, out of the populates, and
 
 ## 3. Partitioning: the three node kinds {#node-kinds}
 
-The cache in question is the **database-backed** one: a node
-is a row in `index.layers` together with its content rows, named by a
-hash of the command's inputs and shared across processes and queries.
-Read results have a separate in-RAM cache, keyed on the exact SQL and
-binds, which this page does not model
-([Caching](/docs/design/caching/#two-tiers)).
-
 **The problem.** A command \(c\) of statement \(t\) has to materialise
 the rows its combined populate produces over everything visible:
 \(U_c\bigl(\bigcup_{\ell \in \Lambda_{t-1}(R)} C(\ell)\bigr)\). Three
@@ -162,11 +161,9 @@ The first two forces push towards splitting the contribution, the
 third against it. The rest of this section carves it where they
 balance.
 
-**Step 1 — write down what a materialisation must produce.** Fix one
-visible root \(R\): materialisations are per root (§1), the per-root
-parts are independent, and \(M_t\), \(M_c\), and everything below
-carry that silent \(R\) index. Everything statement \(t\)
-materialises — its **materialisation content** \(M_t\) — is the
+**Step 1 — write down what a materialisation must produce.**
+Everything statement \(t\) materialises on one root — its
+**materialisation content** \(M_t\) — is the
 union, over its layer-bearing commands \(c\), of one **contribution**
 \(M_c\) per command: the combined populate over the pre-statement
 slice, plus a **selection-dependent term** — rows the command builds
@@ -209,13 +206,17 @@ the set is deterministic per query text and chain, and uniform across
 the statement's commands; a light layer outside it contributes an
 empty unit, not stored. The carve, with the key each part earns:
 
-$$M_c \;=\; \underbrace{U_c(C(R))}_{\mathrm{Sh}_c(R)\;:\;(h(R),\,H(c))} \;\cup \bigcup_{\ell \,\in\, E_t(R)} \underbrace{U_c(C(\ell))}_{\mathrm{Sh}_c(\ell)\;:\;(\mathrm{id}(\ell),\,H(c))} \;\cup\; \underbrace{\bigcup_{o \,\in\, O_c} g_c(o)}_{S_c(R)\;:\;(\mathrm{id}(\mathrm{tip}_{t-1}(R)),\,H(c),\,\mathrm{extra})}$$
+$$M_c \;=\; \underbrace{U_c(C(R))}_{\mathrm{Sh}_c(R)\;:\;(h(R),\,H(c))} \;\cup \bigcup_{\ell \,\in\, E_t(R)} \underbrace{U_c(C(\ell))}_{\mathrm{Sh}_c(\ell)\;:\;(\mathrm{id}(\ell),\,\kappa_{\mathrm{root}})} \;\cup\; \underbrace{\bigcup_{o \,\in\, O_c} g_c(o)}_{S_c(R)\;:\;(\mathrm{id}(\mathrm{tip}_{t-1}(R)),\,\kappa_{\mathrm{root}},\,\mathrm{extra})}$$
 
-Each label is the node's key: **its parent's identity, its command,
-and whatever else its content reads**. For the two shards the parent
-*is* the input, so naming it settles content and placement at once;
-the selection shard's parent is a position rather than an input, and
-what its rows read is named by \(\mathrm{extra}\).
+Each label names what that node's key names: **its parent's identity,
+its command, and whatever else its content reads**. For the two shards
+the parent *is* the input, so naming it settles content and placement at
+once; the selection shard's parent is a position rather than an input,
+and what its rows read is named by \(\mathrm{extra}\) — whatever a node
+reads beyond the one input its parent names. The two non-root kinds
+reach the command through \(\kappa_{\mathrm{root}}\), the root shard's
+own key, rather than through \(H(c)\) directly, which ties each of them
+to the exact root-shard incarnation it was cached against.
 
 Each part is one node, and the three differ exactly as the three
 forces predict:
@@ -241,9 +242,11 @@ forces predict:
   tip, so successive tips form a chain — the **spine** — off which a
   multi-command statement's other selection shards hang as siblings;
   its key **folds** (hashes in) the identity of that parent, plus the
-  resolved ids it read. (Splitting per output is the natural
-  refinement should output-derived work stop being cheap —
-  [Layer Tree Extensions](/docs/design/layer-tree-extensions).)
+  resolved ids it read. (Should output-derived work stop being cheap,
+  the natural refinement is one shard per output, keyed on the spine
+  position and that output's resolved ids; nothing in the keying rule
+  forbids it, and each piece would then wait on one label's read rather
+  than on all of them.)
 
 One rule covers both decisions — the shards kept apart, the outputs
 put together: **split where the parts differ in cost or volatility,
@@ -252,37 +255,30 @@ is barred twice over: a key can name a layer or a selection and
 nothing smaller, and rows within one layer share a fate anyway.
 
 Every part is computed against the same pre-statement slice, and the
-statement's layers enter visibility together atomically. The spine
-advances **once** per statement: all of a statement's selection shards
-parent on \(\mathrm{tip}_{t-1}(R)\), and only the last becomes the new
-tip, defined below.
+statement's layers enter visibility together atomically. In one line:
+**input shards are built on inputs, the selection shard on outputs.**
 
-In one line: **input shards are built on inputs, the selection shard
-on outputs.**
+For each layer-bearing command \(c\), the three nodes and the inputs
+each key names:
 
-For each layer-bearing command \(c\), with those keys in byte-exact
-form:
-
-| Node | Content | Parent | Key |
+| Node | Content | Parent | Key names |
 |---|---|---|---|
-| **Root shard** \(\mathrm{Sh}_c(R)\) | \(U_c(C(R))\) | \(R\) | \(\kappa = \mathcal{H}(\, \mathrm{dom}_{\mathrm{root}} \,\Vert\, h(R) \,\Vert\, H(c) \,)\) |
-| **Layer shard** \(\mathrm{Sh}_c(\ell)\), one per \(\ell \in E_t(R)\) | \(U_c(C(\ell))\) | \(\ell\) | \(\kappa = \mathcal{H}(\, \mathrm{dom}_{\mathrm{layer}} \,\Vert\, \mathrm{id}(\ell) \,\Vert\, \kappa_{\mathrm{root}} \,)\) |
-| **Selection shard** \(S_c(R)\) | \(\bigcup_{o \in O_c} g_c(o)\) | \(\mathrm{tip}_{t-1}(R)\) | \(\kappa = \mathcal{H}(\, \mathrm{dom}_{\mathrm{sel}} \,\Vert\, \mathrm{id}(\mathrm{tip}_{t-1}(R)) \,\Vert\, \kappa_{\mathrm{root}} \,\Vert\, \mathrm{extra} \,)\) |
+| **Root shard** \(\mathrm{Sh}_c(R)\) | \(U_c(C(R))\) | \(R\) | \((h(R),\, H(c))\), giving \(\kappa_{\mathrm{root}}\) |
+| **Layer shard** \(\mathrm{Sh}_c(\ell)\), one per \(\ell \in E_t(R)\) | \(U_c(C(\ell))\) | \(\ell\) | \((\mathrm{id}(\ell),\, \kappa_{\mathrm{root}})\) |
+| **Selection shard** \(S_c(R)\) | \(\bigcup_{o \in O_c} g_c(o)\) | \(\mathrm{tip}_{t-1}(R)\) | \((\mathrm{id}(\mathrm{tip}_{t-1}(R)),\, \kappa_{\mathrm{root}},\, \mathrm{extra})\) |
 
-In the key column: \(\mathcal{H}(\cdot)\) is the raw cryptographic
-hash over byte strings; \(\Vert\) is byte concatenation;
-\(\mathrm{id}(\cdot)\) is a database id, so the selection shard folds
-the tip's *id*, not its key; \(\mathrm{extra}\) is what a node reads
-beyond the one input its parent names; the \(\mathrm{dom}\) prefixes
-are per-kind domain-separation tags, and the byte layout is
-[Keys](/docs/design/layer-keys)' subject. Note that the two non-root
-keys fold \(\kappa_{\mathrm{root}}\), the root shard's own key, rather
-than \(H(c)\) directly: a layer or selection shard is thus tied to the
-exact root-shard incarnation it was cached against, and inherits its
-project scoping for free. In the
-current deployment no verb writes content onto an ephemeral layer, so
-\(E_t(R)\) is empty and each command materialises just a root shard
-and a selection shard.
+\(\mathrm{id}(\cdot)\) is a database id, so a non-root node folds its
+parent's *id*, never its key. How those ingredients become bytes — the
+canonical encoding, and the per-kind domain tag that keeps the three key
+families disjoint even over equal payloads — is
+[Keys](/docs/design/layer-keys)' subject.
+
+One consequence of the first row is worth reading off directly. Because
+the root shard folds \(h(R)\), the per-project trees are **salted**
+apart: project A's `search("bar")` root shard and project B's are
+different nodes, each cached independently of which *other* projects
+happen to be visible alongside — and the two non-root kinds inherit that
+scoping through \(\kappa_{\mathrm{root}}\).
 
 For a pure content verb (\(O_c\) empty) the selection shard is empty,
 surviving as a deterministic **spine marker**. The tip advances once
@@ -295,6 +291,19 @@ selection shards at all, and its tip is then the last root shard in
 pre-order. Either way the tip is deterministic: pre-order is source
 order and each command's internal layer order is canonical, so the
 tip is a pure function of the query text and the pre-statement chain.
+
+In the current deployment no verb writes content onto an ephemeral
+layer, so \(E_t(R)\) is empty and each command materialises just a root
+shard and a selection shard. Nothing above assumed otherwise: when a
+verb does write content into an ephemeral layer — a generated or patched
+source overlay — or an incremental update commits a persistent **delta
+layer** ([Layers](/docs/design/layers/#kinds-and-lifetimes)), that layer
+joins \(E_t(R)\) and rides the layer-shard mechanism unchanged, since a
+layer shard's key names layer identity and never lifetime. That also
+names the cost model honestly: "the root shard reads the root" means
+"the root shard reads the *heavy* corpus, and light layers are assumed
+*light*". Should a delta ever grow heavy, the remedy is compaction into
+the root rather than a different carve.
 
 The design rule the table encodes:
 
@@ -441,22 +450,7 @@ context-free. And by §3's reuse argument, running `search("bar")` alone
 tomorrow, or under a different upstream context, hits the same Sh3(R)
 node; only the context-specific remainder differs.
 
-## 6. Practical consequences {#practical-consequences}
-
-The formalism condenses into four operating rules:
-
-- **Visibility is a flat set, never a subtree** — queries bind
-  `visible_ids()`, the union of the visible slices (§1); nothing walks
-  the forest at read time.
-- **Only the spine orders anything** — `tip` =
-  \(\mathrm{tip}_t(R)\), deterministic by §3's pre-order rule.
-- **Isolation is visibility read in reverse** — a returned row outside
-  the visible set is a leak
-  ([Layers and layer operations](/docs/design/layers)).
-- **Invalidation is (A3) enforced** — persistent-index mutations purge
-  the ephemeral cache in the same transaction; nothing else does.
-
-## 7. Prior art {#prior-art}
+## 6. Prior art {#prior-art}
 
 Naming a unit of work by a hash of its inputs, so that the name alone
 decides reuse, is well-trodden ground: **OCI/Docker** image layers,
@@ -477,5 +471,6 @@ per output.
 
 - [Queries and their Meaning](/docs/design/semantics)
 - [Layers and layer operations](/docs/design/layers)
+- [Layer Keys and Hashing](/docs/design/layer-keys)
 - [Caching](/docs/design/caching)
 - [search()](/docs/design/search)

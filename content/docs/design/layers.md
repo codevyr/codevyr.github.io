@@ -124,8 +124,9 @@ should see *nothing* really sees nothing.
 > protected kinds of §8, and the intended invalidation rule is that
 > committing a delta purges nothing keyed on ids that still exist — only
 > replacing a project's corpus does. Nothing in the model depends on the
-> restriction; [Layer Tree Extensions](/docs/design/layer-tree-extensions)
-> covers deltas.
+> restriction: a delta is a content-carrying layer whose lifetime happens
+> to be persistent, and it rides the existing caching machinery
+> ([Partitioning a Materialisation §3](/docs/design/shards/#node-kinds)).
 
 ## 4. Visibility: roots and materialisations {#visibility}
 

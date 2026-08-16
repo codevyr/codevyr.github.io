@@ -156,9 +156,6 @@ The design pages use these terms with fixed meanings:
 - **[Partitioning a Materialisation](/docs/design/shards)** — how a
   statement's materialisation is split into independently cached shards,
   and what their keys guarantee.
-- **[Layer Tree Extensions](/docs/design/layer-tree-extensions)** — the
-  same model with several projects visible, and with content on
-  non-root layers.
 - **[Layer Keys and Hashing](/docs/design/layer-keys)** — how a
   command's verbs, filters, and context become those keys.
 - **[Caching](/docs/design/caching)** — the content-addressed source
