@@ -86,12 +86,12 @@ query). Lifetime is independent of a layer's position in the forest:
 where a layer sits and how long it lives are separate facts. The two
 lifetimes compare as:
 
-| | Persistent (today: the root) | Ephemeral |
+| | Persistent | Ephemeral |
 |---|---|---|
 | Created by | uploading/indexing a project | a verb, during a query |
 | Lifetime | permanent (never garbage-collected) | cache entry (TTL / LRU) |
 | Holds | the indexed corpus | one verb's per-query output |
-| Count | one per project (`projects.root_layer_id`) today | many, transient |
+| Count | a project's persistent closure | many, transient |
 
 Both kinds live in the *same* tables, told apart only by their `layer` tag — so a
 query includes or excludes either simply through which layer ids it makes
@@ -103,29 +103,35 @@ its **persistent closure**: the **root layer** \(R_p\) — the project's
 that names the committed state it stands for
 ([Partitioning a Materialisation §4](/docs/design/shards/#key-trust)
 makes that naming precise) — plus, in general, any further persistent
-**delta layers** committed by incremental index updates. In today's
-deployment the closure is just the root: delta layers are not yet
-representable, which is why lifetime and kind still coincide. Nothing in the
-model depends on that — [Layer Tree Extensions](/docs/design/layer-tree-extensions)
-covers deltas.
+**delta layers** committed by incremental index updates.
 
 > **Persistent-prefix invariant.** Persistent and ephemeral layers never
 > interleave: per project the visible slice is always the persistent closure
 > (in commit order) followed by an ephemeral suffix (the query's
 > materialisations) — committed state never depends on query-scoped state.
 
-> **Note:** One ephemeral layer, the **canary**, is a self-contained sentinel —
-> its own project, object, symbol, and instance — used to prove that a query which
-> should see *nothing* really sees nothing. It is a protected kind that garbage
-> collection never touches.
+**The canary.** One ephemeral layer is a self-contained sentinel — its own
+project, object, symbol, and instance — used to prove that a query which
+should see *nothing* really sees nothing.
+
+> **Deployment status.** The above is the model; the running system
+> implements a proper subset of it. A project's persistent closure is
+> today just its root layer — persistent delta layers are not yet
+> representable, which is why lifetime and kind still coincide and why
+> `root_ids()` (§4) returns exactly one layer per project. The content
+> verbs' populates are already layer-agnostic but are so far only ever
+> run over the root (§6.1); when delta layers land they join the
+> protected kinds of §8, and the intended invalidation rule is that
+> committing a delta purges nothing keyed on ids that still exist — only
+> replacing a project's corpus does. Nothing in the model depends on the
+> restriction; [Layer Tree Extensions](/docs/design/layer-tree-extensions)
+> covers deltas.
 
 ## 4. Visibility: roots and materialisations {#visibility}
 
-The full structure the layers form is a **shared, content-addressed tree per
-root** — root shards hang off the root, layer shards off the single layer they
-shard, and only the selection shards form a query-ordered spine (see
-[Partitioning a Materialisation](/docs/design/shards) for the model and a worked example).
-What a running query carries is much flatter: an **`EphContext`** — the set of
+The layers of a root form a tree, carved and parented as
+[Partitioning a Materialisation](/docs/design/shards) describes. What a
+running query carries is much flatter: an **`EphContext`** — the set of
 visible root layers plus, per root, the ordered list of ephemeral layers
 materialised so far.
 
@@ -141,10 +147,9 @@ Two accessors turn this forest into the flat sets queries actually bind:
 - **`visible_ids()`** = roots ∪ every ephemeral layer, flattened. This is the binding set
   for every `layer = ANY($visible)` predicate and the reference set for leak
   checks. Queries see the flat set, never the structure.
-- **`root_ids()`** = just the roots — the persistent slice of visibility
-  (today the *whole* persistent slice: one persistent layer per project;
-  see the [persistent closure](#kinds-and-lifetimes) above for the intended
-  multi-layer form).
+- **`root_ids()`** = just the roots — the persistent slice of visibility,
+  which is each visible project's
+  [persistent closure](#kinds-and-lifetimes).
 
 A context always starts *rooted* in an explicit set of root layers (an empty set
 is legal and means "no persistent data visible" — used by unit tests and the
@@ -153,17 +158,27 @@ canary). The visible set only ever grows, and only through one path.
 ## 5. Materialisations: how a query accretes layers {#materialisations}
 
 Askl evaluates a query one top-level **statement** at a time, in source
-order. A statement whose verbs
-create ephemeral layers (a `search(...)`, a `loc(...)`, a `layer { … }` block)
-materialises its layers — every layer-bearing command of the statement
-computing against the same pre-statement visibility — then appends them
-to every visible root's set as one
-atomic **materialisation**:
+order. A statement whose verbs create ephemeral layers (a `search(...)`,
+a `loc(...)`, a `layer { … }` block) materialises its layers, then
+appends them to every visible root's set as one atomic
+**materialisation**:
 
 ```askl
 layer { ... } ;        // statement 1 → materialisation A becomes visible on each root
 search("kmalloc") { }  // statement 2 → sees A, then materialisation B joins
 ```
+
+Inside a statement, though, nothing is sequenced. A visibility snapshot
+is taken once, before any of the statement's commands materialise, and every
+`@label` argument is resolved up front from the completed selection of
+the *earlier* statement that defines it — which is the whole reason for
+the ordering rule of [§6.2](#manual-constructor), and the reason no
+command ever has to read a statement-mate's result mid-flight. The
+statement's layer-bearing commands then materialise **concurrently**
+against that one pre-statement snapshot, independent by construction.
+Outcomes are applied in command pre-order, so completion order is
+unobservable, and each command keeps its own layers — attribution by
+layer id is what gives every command its own selection.
 
 The append is **lockstep**: a materialisation must contribute a layer for *every* visible
 root (one that misses a root, or names an unknown one, is a programming error
@@ -173,15 +188,16 @@ one: `search("a") { search("b") }` is one statement, and the
 inner populate does not see the outer's layers — only the next statement's
 commands do.
 
-A root's **`tip`** is its spine tip — the last layer of the most
-recent materialisation in command pre-order — and the *next* statement's
-selection shards hang off it: one per selection-shard-bearing command,
-**siblings** on the same tip. Note what does and does
-not hang there: only selection shards parent on the spine; the same materialisation's root shards
-parent on the root and its layer shards on the individual layers they shard, which is
-what keeps their cache keys context-free. Visibility, not parentage, is what
-makes a later verb able to see an earlier statement's ephemeral rows: every
-materialisation's layers are all in `visible_ids()` when the next statement's queries run.
+A root's **`tip`** is its spine tip — the last layer of the most recent
+materialisation in command pre-order — and it is what the *next*
+statement grows from: that statement's selection-shard-bearing commands
+hang their nodes off the tip as siblings, while the rest of a
+materialisation parents elsewhere in the tree
+([Partitioning a Materialisation](/docs/design/shards) has the rule per
+node kind). Parentage is not what makes an earlier statement's rows
+readable, though — visibility is. Every materialisation's layers are in
+`visible_ids()` when the next statement's queries run, whatever they hang
+off.
 
 > **Note:** The chain topology is decided entirely by the **executor**, from the
 > live `EphContext` — never by the verb. A verb describes *what* rows it wants
@@ -208,9 +224,8 @@ project("linux") search("EXPORT_SYMBOL") { }   // callees of every match
 
 These verbs are **layer-agnostic**. Each provides one populate of the shape
 `scan(txn, root, visible_layers, eph_branch)` (the code's `ShardedScan`);
-the executor decides which layers
-to run it over. Today it reads the persistent (root) layers; the same populate is
-what future ephemeral *content* layers will flow through automatically. How the
+the executor decides which layers to run it over, so ephemeral *content*
+layers will flow through the same populate without new verb code. How the
 executor splits that populate into shards is
 [Partitioning a Materialisation](/docs/design/shards); how the shards are stored,
 keyed, and invalidated is [Caching](/docs/design/caching).
@@ -227,8 +242,9 @@ operations**, without a populate:
 
 Ops may reference persistent ids or the ephemeral ids produced by *earlier
 statements'* layers — a `@label` argument must name an earlier top-level
-statement; same-statement references are parse errors (that is why the
-block's selection shard is chained onto `tip`, the previous statement's tip).
+statement, and same-statement or forward references are parse errors.
+That rule is what lets every label be resolved before materialisation
+begins ([§5](#materialisations)).
 The block validates every referenced id against the visible project set before
 committing, so a typo'd id fails loudly instead of committing a hollow layer.
 
@@ -260,21 +276,24 @@ the fact.
 
 ## 8. Lifetime and garbage collection {#lifetime-and-gc}
 
-Persistent layers are permanent — deleting a root would cascade an entire
-project's index away — so they are protected kinds, excluded from every
-purge. (When persistent delta layers land, they join the protected set;
-the intended invalidation rule is that committing a delta purges nothing
-keyed on ids that still exist — only replacing a project's corpus does.)
+Ephemeral layers are cache entries, so *when* one is dropped is a caching
+policy — content-addressing, the two-phase `populated` guard, LRU, TTL,
+and the wholesale purge on re-upload, all in
+[Caching](/docs/design/caching). Two things about dropping one are
+properties of the data model instead, and belong here.
 
-Ephemeral layers are **cache entries**. Each is keyed by a content hash, its
-`last_used` timestamp is bumped on every hit, and a TTL sweep drops layers that
-haven't been used within a window. Re-uploading a project purges the ephemeral
-cache wholesale so a subsequent query can't see stale results. Deleting a layer
-cascades both to its child layers (`parent_id`) and to every data row tagged with
-it (each data table's `layer` FK cascades), so a purge never leaves orphaned
-objects, symbols, instances, or refs behind. The full lifetime story —
-content-addressing, the two-phase `populated` guard, LRU, and TTL — is in
-[Caching](/docs/design/caching).
+**Some layers are never candidates.** Persistent layers are permanent —
+deleting a root would cascade an entire project's index away — so their
+kind is *protected*, excluded from every purge; the canary of §3 is
+protected too, being the sentinel a purge would otherwise quietly
+invalidate.
+
+**Deleting a layer deletes its rows.** The delete cascades both to child
+layers (`parent_id`) and to every data row tagged with the layer (each
+data table's `layer` FK cascades), so a purge never leaves orphaned
+objects, symbols, instances, or refs behind. This is the same property as
+§2's: a row belongs to exactly one layer, and it has no existence apart
+from it.
 
 ## 9. Composition is union; masking is future {#composition-is-union}
 
