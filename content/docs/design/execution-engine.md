@@ -303,3 +303,20 @@ the query is rejected with a hint.
 
 Weakness otherwise keeps its defaults: anchored commands are constraining
 by construction, and the propagation rule above decides the rest.
+
+## 9. Prior art
+
+The fixpoint itself is standard. Iterating a dependency graph until
+nothing changes, propagating only what changed, has the same shape as
+**semi-naive evaluation** in Datalog — with the direction reversed:
+Datalog's relations grow towards a least fixpoint, while selections here
+only shrink, and the delta a round carries is a removal rather than an
+addition. It also resembles **chaotic iteration** in abstract
+interpretation, which likewise leaves the visit order free and leans on
+monotonicity to make the result order-independent; §4's dataflow framing
+and the constraint-propagation analogy are the same idea in two other
+vocabularies. What is particular here is what sits in the lattice:
+selections are instance sets closed per symbol, so a round's transfer
+function is a per-symbol semi-join against a neighbour rather than a rule
+body, and weakness lets a node participate in the result without
+constraining anyone.

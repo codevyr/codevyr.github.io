@@ -230,6 +230,24 @@ The §1 query, byte-identical output at every stage:
   and diagnostics use to assert which substatements probed, when, and how
   they classified.
 
+## 11. Prior art
+
+The probe-and-refine loop resembles **semi-join reduction** from
+distributed query processing — the SDD-1 line of work, and Bloom-filter
+joins after it — where a site is shipped a projection of its neighbour so
+that rows with no join partner are discarded before the expensive
+operation runs. §5's roles have the same shape: a resolved neighbour's
+ids are conjoined into another substatement's predicate, and the
+reduction is safe precisely because it only ever over-approximates
+(Theorem 2). **Sideways information passing** in Datalog evaluation and
+**adaptive query processing** in database engines cover the other half —
+using a partially computed result to plan the rest, rather than
+committing to a plan before anything is known. What differs here is that
+the oracle is the index itself rather than a statistics estimate, and
+that a probe may deliberately give up: the cap turns "how many?" into
+"few enough to enumerate, or not", which is the only question the
+consumers in §7 ask.
+
 ## Where to read more
 
 - [Execution Engine](/docs/design/execution-engine) — the worklist

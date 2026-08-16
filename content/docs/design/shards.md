@@ -448,6 +448,23 @@ The formalism condenses into four operating rules:
 - **Invalidation is (A3) enforced** — persistent-index mutations purge
   the ephemeral cache in the same transaction; nothing else does.
 
+## 7. Prior art
+
+Naming a unit of work by a hash of its inputs, so that the name alone
+decides reuse, is well-trodden ground: **OCI/Docker** image layers,
+**Nix** derivations, and **Bazel**'s action cache all do it, and §4's
+"equal keys, equal content" is the invariant they also depend on. The
+other half of the lineage is **materialised views with incremental
+maintenance**, where a stored result stays usable as its inputs change,
+and where the decomposition that makes maintenance affordable runs over
+the input relations. What seems less usual here is the axis of the split:
+one operator's output is decomposed along a *visibility chain*, and each
+part is keyed so that a volatile input cannot invalidate a stable one —
+\(\kappa(\mathrm{Sh}_c(R))\) mentions no ephemeral layer at all. Where
+the carve stops is then an economic question rather than a structural one
+(§3), which is why the selection shard is a single node rather than one
+per output.
+
 ## Where to read more
 
 - [The Command Algebra](/docs/design/command-algebra)
