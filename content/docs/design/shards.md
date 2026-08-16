@@ -1,79 +1,77 @@
 ---
-title: "Design: The Layer Tree"
-description: "A formal model of the layer forest: what a materialisation contains, how it is carved into cached nodes, and what their keys guarantee"
+title: "Design: Partitioning a Materialisation"
+description: "How a statement's materialisation is split into independently cached shards, and what their keys guarantee"
 weight: 140
+aliases:
+  - /docs/design/layer-tree/
 ---
 
-Different queries — and different steps of one query — keep re-running
-the same expensive populates over the same indexed source code. The
-layer tree exists so that each populate is paid for once and its result
-shared, without one query ever reading another's data: layers form a
-**shared, content-addressed forest, one tree per root layer**, each
-node named by a hash of its inputs, so the name alone decides whether
-it already exists. This page gives the objects, the axiom a verb must
-satisfy, and the hash system that makes each node's name decide
-what may be reused — then a worked example and the practical
-consequences.
+A statement's **materialisation** — the rows its layer-creating commands
+write, phase M of
+[the life of a query](/docs/design/overview/#the-life-of-a-query) — has
+to be stored somewhere. *How* it is stored is the question this page
+answers, and it is a caching question rather than a bookkeeping one. A
+materialisation is not one opaque result: it is a set of contributions
+with wildly different costs and lifetimes, and holding it as a single
+unit lets the cheapest and most volatile of them decide the fate of the
+most expensive. So the shape of the storage is what the caching problem
+dictates, and this page derives it — the notation the derivation needs
+(§1), the axiom a verb must satisfy for the split to lose nothing (§2),
+the carve itself and the key each part earns (§3), why those keys can be
+trusted (§4) — then a worked example and the operating rules that
+follow.
 
-## 1. Objects
+## 1. Notation
 
-**Projects, lifetime, and roots.** Let \(P\) be the set of projects.
-Every layer has a **lifetime**: **persistent** (committed index state,
-surviving across queries) or **ephemeral** (scoped to one query).
-Lifetime is independent of a layer's position in the forest: where a
-layer sits and how long it lives are separate facts. Each project
-\(p \in P\) has a **persistent closure**: all of its persistent layers
-taken together. That is its **root layer** \(R_p\), the project's
-*initial* persistent layer — carrying a stored **identity hash**
-\(h(R_p)\) that names the committed state it stands for (§4 makes that
-naming precise) — plus in general any further
-persistent **delta layers** committed by incremental index updates. A
-query runs against a set of visible roots
-\(\mathcal{R} \subseteq \{ R_p : p \in P \}\) together with their
-closures.
+The layer data model — kinds, lifetimes, visibility, isolation,
+garbage collection — belongs to
+[Layers and layer operations](/docs/design/layers). This section fixes
+only the symbols the argument uses.
 
-> **Persistent-prefix invariant.** Persistent and ephemeral layers never
-> interleave: per project the visible slice is always the persistent
-> closure (in commit order) followed by an ephemeral suffix (the query's
-> materialisations) — committed state never depends on query-scoped state.
+**Layers and content.** The layer universe \(L\) is a set of nodes, each
+\(\ell \in L\) carrying a **parent** \(\pi(\ell)\), undefined for a root
+layer, so \(\pi\) induces a forest with one tree per root; a **key**
+\(\kappa(\ell)\), a cryptographic hash that is its cache identity; and
+**content** \(C(\ell)\), the rows physically stored on it — indexed
+facts (a symbol, an instance of it, a reference to it) and, on a root,
+the indexed source text those facts came from. Every stored row carries
+the layer it lives on — **one row, one layer** — so distinct layers'
+contents are pairwise disjoint and every union below is a genuine
+partition.
 
-> **Deployment status.** Today each closure is just the root: persistent
-> delta layers are not yet representable. Nothing here depends on that —
-> [Layer Tree Extensions](/docs/design/layer-tree-extensions) covers deltas.
-
-**Layers.** The layer universe \(L\) is a set of nodes, each \(\ell \in L\)
-carrying:
-
-- a **parent** \(\pi(\ell) \in L\), with \(\pi(R_p)\) undefined (roots
-  have no parent), so \(\pi\) induces a forest with one tree per root;
-- a **key** \(\kappa(\ell)\), a cryptographic hash (its cache identity);
-- **content** \(C(\ell)\), the set of rows physically stored on
-  \(\ell\). A row is one indexed fact: a symbol, an instance of it, a
-  reference to it. A layer may also carry **corpus** content — the
-  indexed source text itself
-  ([Layer Tree Extensions](/docs/design/layer-tree-extensions)).
-  Every stored row carries the layer it lives on — one row, one
-  layer — so distinct layers' contents are pairwise disjoint and the
-  unions below are genuine partitions.
+**Roots and slices.** \(R_p\) is project \(p\)'s **root layer**, carrying
+a stored **identity hash** \(h(R_p)\) that names the committed index
+state it stands for (§4 makes that naming precise); a query runs against
+a set of visible roots \(\mathcal{R}\) together with each root's
+persistent closure — today just the root itself
+([Layers](/docs/design/layers/#kinds-and-lifetimes)). Write
+\(\Lambda_t(R)\) for the ordered **slice** visible on \(R\)'s project
+after statement \(t\): that closure, followed by the materialisations of
+statements \(1 \dots t\) in order. A query's visibility is the union of
+the per-project slices; everything below works within one slice, and
+[Layer Tree Extensions](/docs/design/layer-tree-extensions) handles
+several projects at once. Existing layers, the root included, are never
+written — a materialisation only ever adds nodes.
 
 **Statements and materialisations.** A query evaluates layer-creating
 top-level statements \(t = 1, 2, \dots\) in source order, and each
 produces exactly **one** materialisation per visible root — one
-altogether in the single-project case this page runs in. Within the statement the
-layer-creating unit is the *command*: each layer-bearing command
-\(c\) — the statement's own or a nested substatement's — contributes
-one **node group**, and the materialisation is the union of those
-groups. Nesting never sequences — the statement separator is the only
-time axis ([terminology](/docs/design/overview/#terminology)) — and every
-populate of statement \(t\) reads the slice as it stood after
-statement \(t-1\), never a statement-mate's layers. Each command is
-summarised in one canonical
-**input hash** \(H(c)\), built so that two commands with equal
-\(H(c)\) are semantically identical. How \(H(c)\) is assembled is its
-own subsystem ([Layer Keys and Hashing](/docs/design/layer-keys));
-here we use only two of its properties: \(H(c)\) names every input the
-command's populates read *except the layer contents they are aimed
-at* — those are named by the node keys of §3 — and nothing else.
+altogether in the single-project case this page runs in. Within the
+statement the layer-creating unit is the *command*: each layer-bearing
+command \(c\) — the statement's own or a nested substatement's —
+contributes one **node group**, and the materialisation is the union of
+those groups. Nesting never sequences — the statement separator is the
+only time axis ([terminology](/docs/design/overview/#terminology)) — and
+every populate of statement \(t\) reads the slice as it stood after
+statement \(t-1\), never a statement-mate's layers.
+
+**The input hash.** Each command is summarised in one canonical **input
+hash** \(H(c)\), built so that two commands with equal \(H(c)\) are
+semantically identical. How \(H(c)\) is assembled is its own subsystem
+([Layer Keys and Hashing](/docs/design/layer-keys)); here we use only
+two of its properties: \(H(c)\) names every input the command's
+populates read *except the layer contents they are aimed at* — those are
+named by the node keys of §3 — and nothing else.
 
 **Stored and observed content.** The command's **combined populate**
 \(U_c\) maps an input slice — some layers' content rows — to every
@@ -83,25 +81,6 @@ row its content verbs write for it; the **content map**
 The engine stores the \(U_c\)-image and reads observe \(f_c\); since
 \(C(\cdot)\) means stored rows the algebra below runs over \(U_c\),
 and \(f_c\) reappears where reads do (§3).
-
-**Visibility.** A query never reads the whole layer forest. Every SQL
-query it issues carries an allowlist of layer ids, and rows on any
-other layer are filtered out unconditionally; for this query they do
-not exist. That allowlist is the query's **visibility**. It starts as
-the visible persistent closures and grows as the query runs — though
-not with every statement: one without layer-creating commands
-materialises nothing. A layer-creating statement **materialises** its results as
-one atomic **materialisation** per visible root: per command, a small
-set of *new* layers (§3 derives them: at most one per input the
-command reads, plus at most one selection shard). Existing layers, the
-root included, are never written; the tree only gains nodes. Write
-\(\Lambda_t(R)\) for the ordered **slice** visible on \(R\)'s project
-after statement \(t\): the persistent closure (per the status note,
-just \(\{R\}\)) followed by the concatenation of the materialisations
-of statements \(1 \dots t\). The allowlist a query binds is the union
-of the per-project slices; everything below works within one slice,
-and [Layer Tree Extensions](/docs/design/layer-tree-extensions)
-handles several projects at once.
 
 ## 2. Verb semantics and the decomposition axiom
 
@@ -145,8 +124,7 @@ built from earlier statements' selections, out of the populates, and
 
 ## 3. Partitioning: the three node kinds
 
-The layer tree is a cache, and its shape is what the caching problem
-dictates. The cache in question is the **database-backed** one: a node
+The cache in question is the **database-backed** one: a node
 is a row in `index.layers` together with its content rows, named by a
 hash of the command's inputs and shared across processes and queries.
 Read results have a separate in-RAM cache, keyed on the exact SQL and

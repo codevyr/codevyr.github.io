@@ -80,11 +80,9 @@ layer graph — only about a flat set of visible ids.
 
 A layer has a **kind** (its structural role: `root`, `canary`, or
 `ephemeral`) and, orthogonally, a **lifetime** — persistent (committed
-index state) or ephemeral (query-scoped). In today's deployment the two
-coincide — every persistent layer is a root, one per project — but the
-model keeps them separate: incremental updates will add persistent
-non-root delta layers (see the
-[persistent closure](/docs/design/layer-tree/#1-objects)). The two
+index state, surviving across queries) or ephemeral (scoped to one
+query). Lifetime is independent of a layer's position in the forest:
+where a layer sits and how long it lives are separate facts. The two
 lifetimes compare as:
 
 | | Persistent (today: the root) | Ephemeral |
@@ -98,6 +96,23 @@ Both kinds live in the *same* tables, told apart only by their `layer` tag — s
 query includes or excludes either simply through which layer ids it makes
 visible. Nothing else about a row depends on which kind of layer it sits on.
 
+**The persistent closure.** A project's persistent layers taken together are
+its **persistent closure**: the **root layer** \(R_p\) — the project's
+*initial* persistent layer, carrying a stored **identity hash** \(h(R_p)\)
+that names the committed state it stands for
+([Partitioning a Materialisation §4](/docs/design/shards/#4-why-a-key-can-be-trusted)
+makes that naming precise) — plus, in general, any further persistent
+**delta layers** committed by incremental index updates. In today's
+deployment the closure is just the root: delta layers are not yet
+representable, which is why lifetime and kind still coincide. Nothing in the
+model depends on that — [Layer Tree Extensions](/docs/design/layer-tree-extensions)
+covers deltas.
+
+> **Persistent-prefix invariant.** Persistent and ephemeral layers never
+> interleave: per project the visible slice is always the persistent closure
+> (in commit order) followed by an ephemeral suffix (the query's
+> materialisations) — committed state never depends on query-scoped state.
+
 > **Note:** One ephemeral layer, the **canary**, is a self-contained sentinel —
 > its own project, object, symbol, and instance — used to prove that a query which
 > should see *nothing* really sees nothing. It is a protected kind that garbage
@@ -108,7 +123,7 @@ visible. Nothing else about a row depends on which kind of layer it sits on.
 The full structure the layers form is a **shared, content-addressed tree per
 root** — root shards hang off the root, layer shards off the single layer they
 shard, and only the selection shards form a query-ordered spine (see
-[The Layer Tree](/docs/design/layer-tree) for the model and a worked example).
+[Partitioning a Materialisation](/docs/design/shards) for the model and a worked example).
 What a running query carries is much flatter: an **`EphContext`** — the set of
 visible root layers plus, per root, the ordered list of ephemeral layers
 materialised so far.
@@ -127,8 +142,8 @@ Two accessors turn this forest into the flat sets queries actually bind:
   checks. Queries see the flat set, never the structure.
 - **`root_ids()`** = just the roots — the persistent slice of visibility
   (today the *whole* persistent slice: one persistent layer per project;
-  see the [persistent-prefix invariant](/docs/design/layer-tree/#1-objects)
-  for the intended multi-layer closure).
+  see the [persistent closure](#kinds-and-lifetimes) above for the intended
+  multi-layer form).
 
 A context always starts *rooted* in an explicit set of root layers (an empty set
 is legal and means "no persistent data visible" — used by unit tests and the

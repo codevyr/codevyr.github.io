@@ -33,7 +33,7 @@ Each statement then runs three phases before the next one starts
    the statement's *materialisation*, and they are carved into nodes
    named by a content hash, so an identical populate from any earlier
    query is a cache hit rather than a rerun. Why the carve looks the
-   way it does is [The Layer Tree](/docs/design/layer-tree); what goes
+   way it does is [Partitioning a Materialisation](/docs/design/shards); what goes
    into the names is [Layer Keys and Hashing](/docs/design/layer-keys).
 2. **Probe.** Before reading anything in full, the engine measures.
    Capped id probes find which substatements are small enough to
@@ -63,7 +63,7 @@ an in-RAM cache of read results within one process
   weakness, then [Cost-Based Execution](/docs/design/cost-based-execution)
   for how the same meaning is computed cheaply.
 - **To understand how results are stored and reused**, read
-  [The Layer Tree](/docs/design/layer-tree) first — it derives the node
+  [Partitioning a Materialisation](/docs/design/shards) first — it derives the node
   kinds from the caching problem — then
   [Layer Keys and Hashing](/docs/design/layer-keys) and
   [Caching](/docs/design/caching) for the mechanics.
@@ -139,9 +139,9 @@ The design pages use these terms with fixed meanings:
 
 **Storing and reusing results**
 
-- **[The Layer Tree](/docs/design/layer-tree)** — what a statement
-  materialises, how it is carved into cached nodes, and what their
-  keys guarantee.
+- **[Partitioning a Materialisation](/docs/design/shards)** — how a
+  statement's materialisation is split into independently cached shards,
+  and what their keys guarantee.
 - **[Layer Tree Extensions](/docs/design/layer-tree-extensions)** — the
   same model with several projects visible, and with content on
   non-root layers.

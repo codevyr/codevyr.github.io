@@ -234,5 +234,5 @@ The §1 query, byte-identical output at every stage:
 
 - [Execution Engine](/docs/design/execution-engine) — the worklist
   fixpoint, dependency kinds, and weakness/bindness.
-- [The Layer Tree](/docs/design/layer-tree) — the layer forest probes and
+- [Partitioning a Materialisation](/docs/design/shards) — the layer forest probes and
   reads execute against.

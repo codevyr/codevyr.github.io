@@ -143,7 +143,7 @@ Because the flag and the rows commit atomically, a layer is only ever observed
 A command's **content map** \(f\) ([The Command Algebra](/docs/design/command-algebra)) is **layer-agnostic** (see [Layers](/docs/design/layers)): it computes its
 result over whatever layers are visible and treats all of them the same. More
 than that, a *decomposable* content map — one satisfying the
-[layer-decomposability axiom](/docs/design/layer-tree/#2-verb-semantics-and-the-decomposition-axiom);
+[layer-decomposability axiom](/docs/design/shards/#2-verb-semantics-and-the-decomposition-axiom);
 content populates qualify, cross-layer operations like `layer { … }` do not —
 is a **union-homomorphism**:
 
@@ -206,7 +206,7 @@ between them:
 
 The third node kind, the **selection shard**, holds whatever does not decompose
 per layer (see below); together root shard, layer shard, and selection shard are the three node
-kinds of the [layer tree](/docs/design/layer-tree/#3-partitioning-the-three-node-kinds).
+kinds of the [partition](/docs/design/shards/#3-partitioning-the-three-node-kinds).
 
 This decomposition is exact for **decomposable verbs under masking-free
 composition** — union is associative and commutative (see
@@ -292,7 +292,7 @@ every purge.
 ## Correctness invariants, summarised
 
 - **The root shard is a function of `(root identity, verb inputs)` only** —
-  its parent in the [layer tree](/docs/design/layer-tree) is
+  its parent in the [layer forest](/docs/design/shards) is
   the root, so no other ephemeral layer enters its key. This is what makes it
   reusable across every context, and the property that the per-root salt and
   the domain tag exist to protect.

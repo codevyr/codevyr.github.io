@@ -9,7 +9,7 @@ treats the command as a small algebraic object: how verbs fold into it,
 and how its parts combine into the two functions the other design pages
 use — the combined filter predicate \(F_c\) (keyed in
 [Layer Keys and Hashing](/docs/design/layer-keys)) and the content map
-\(f_c\) (the function [The Layer Tree](/docs/design/layer-tree) splits
+\(f_c\) (the function [Partitioning a Materialisation](/docs/design/shards) splits
 across cached layers). As on those pages, \(c\) ranges over
 layer-bearing commands and \(t = 1, 2, \dots\) indexes layer-creating
 top-level statements — each statement's commands contribute to its
@@ -34,7 +34,7 @@ populate from a filter, which only keeps or drops rows that already
 exist. An added-outright populate is a constant function of \(A\), and
 constants are union-additive (\(X = X \cup X\)), so such populates
 satisfy the
-[layer-decomposability axiom](/docs/design/layer-tree/#2-verb-semantics-and-the-decomposition-axiom)
+[layer-decomposability axiom](/docs/design/shards/#2-verb-semantics-and-the-decomposition-axiom)
 trivially. The names track the code: the engine fills a layer's rows
 by running the verb's populate closures, and `search`'s populate is
 implemented as a `ShardedScan`. `project("linux")` denotes a
@@ -136,7 +136,7 @@ previous sections built — §4's combined populate and §3's selection:
 $$f_c \;=\; \sigma_{F_c} \circ U_c$$
 
 — read right to left: \(U_c\) applies first, the selection after. The reason to name this composite at all: the
-[layer tree](/docs/design/layer-tree) needs *one function per
+[partition](/docs/design/shards) needs *one function per
 command* that it can aim at different layer slices and split
 across them, and \(f_c\) is that function.
 
@@ -166,11 +166,11 @@ Because a selection acts row by row and a union of additive maps is
 additive, \(f_c\) is additive — splittable across disjoint inputs —
 exactly when each populate \(u_i\) is. What that additivity buys,
 and why it is the whole caching story, is the
-[layer-decomposability axiom](/docs/design/layer-tree/#2-verb-semantics-and-the-decomposition-axiom).
+[layer-decomposability axiom](/docs/design/shards/#2-verb-semantics-and-the-decomposition-axiom).
 
 ## Where to read more
 
-- [The Layer Tree](/docs/design/layer-tree) — the forest \(f_c\) is
+- [Partitioning a Materialisation](/docs/design/shards) — the forest \(f_c\) is
   split across, and the theorems the split satisfies.
 - [Layer Keys and Hashing](/docs/design/layer-keys) — how \(F_c\) and
   the per-verb inputs become the cache keys \(H(c)\).

@@ -4,7 +4,7 @@ description: "Two generalisations of the layer tree that need no new machinery: 
 weight: 141
 ---
 
-[The Layer Tree](/docs/design/layer-tree) develops its model over one
+[Partitioning a Materialisation](/docs/design/shards) develops its model over one
 project whose root is the only content-carrying layer. This page lifts
 both restrictions and shows that neither costs any new machinery.
 
@@ -12,7 +12,7 @@ both restrictions and shows that neither costs any new machinery.
 
 The core page fixed one project throughout; this section makes several
 visible at once. With several projects visible, everything in
-[layer-tree §3](/docs/design/layer-tree/#3-partitioning-the-three-node-kinds)
+[shards §3](/docs/design/shards/#3-partitioning-the-three-node-kinds)
 happens **per project, in lockstep**: statement \(t\) appends one
 materialisation for **every** \(R \in \mathcal{R}\) atomically. The
 query's **visibility** — the allowlist it binds — is the union of the
@@ -35,21 +35,21 @@ content.
 ## 2. Content-producing layers
 
 The core page also deferred two generalisations: layers other than the
-root carrying corpus content, and the persistent delta layers of
-[layer-tree §1](/docs/design/layer-tree/#1-objects). Neither needs new
-machinery.
+root carrying corpus content, and the
+[persistent delta layers](/docs/design/layers/#kinds-and-lifetimes) of
+the layer data model. Neither needs new machinery.
 
 The model treats "content" uniformly: \(C(\ell)\) may include corpus
 content for **any** layer, not just roots. Today only roots carry
 indexed content, so \(E_t(R)\) is empty and no layer shard is minted
 at all. But nothing
-in [layer-tree §3](/docs/design/layer-tree/#3-partitioning-the-three-node-kinds)
+in [shards §3](/docs/design/shards/#3-partitioning-the-three-node-kinds)
 assumed that. When a future verb writes content into an ephemeral
 layer \(\ell\) (say, a generated or patched source overlay):
 
 - \(\ell \in E_t(R)\) for subsequent statements, so each later command's
   populate materialises a genuine \(\mathrm{Sh}_c(\ell) = U_c(C(\ell))\);
-- [the carve](/docs/design/layer-tree/#3-partitioning-the-three-node-kinds)
+- [the carve](/docs/design/shards/#3-partitioning-the-three-node-kinds)
   already sums it into the materialisation's read, and already shares
   it with every other context containing \(\ell\);
 - key soundness holds because \(\mathrm{id}(\ell)\) identifies content that
@@ -60,7 +60,7 @@ attributed to ephemeral layers, and index coverage for them), not in this
 algebra.
 
 The same reasoning covers **persistent delta layers**
-([layer-tree §1](/docs/design/layer-tree/#1-objects)): a delta is a
+([Layers](/docs/design/layers/#kinds-and-lifetimes)): a delta is a
 content-carrying layer whose lifetime happens to be persistent. It joins
 the closure, appears in \(E_t(R)\), and rides the **layer shard** mechanism —
 a layer shard's key is layer identity plus the input hash \(H(c)\), with no
@@ -81,7 +81,7 @@ splitting *within* a command, per **output**. Today a command's spine
 node is one node: every output-derived piece (each `@label`'s rows)
 folds into a single extra digest — a sound coarsening of the
 derivation's
-[output units](/docs/design/layer-tree/#3-partitioning-the-three-node-kinds),
+[output units](/docs/design/shards/#3-partitioning-the-three-node-kinds),
 free while selection-shard populates are batch inserts of precomputed rows.
 If a future generative verb does heavy work per referenced selection
 (deriving content from `@e`'s locations, say), the natural refinement
@@ -96,7 +96,7 @@ cells stop being cheap.
 
 ## Where to read more
 
-- [The Layer Tree](/docs/design/layer-tree) — the objects, the
+- [Partitioning a Materialisation](/docs/design/shards) — the notation, the
   decomposition axiom, the root-shard/layer-shard/selection-shard
   partition, and what its keys guarantee.
 - [Layers and layer operations](/docs/design/layers) — the data model, the

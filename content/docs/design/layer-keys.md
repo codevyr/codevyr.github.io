@@ -4,7 +4,7 @@ description: "How a command's verbs, filters, and context become the cache keys 
 weight: 145
 ---
 
-Every node in the [layer forest](/docs/design/layer-tree) is
+Every node in the [layer forest](/docs/design/shards) is
 content-addressed: its cache key is a hash, and a cache hit means "this node
 already exists". This page explains how those keys are built, bottom-up. One
 rule governs everything on this page:
@@ -148,7 +148,7 @@ present); the command hash at the top.
 ## 7. Node keys
 
 The command hash \(H(c)\) is the "command inputs" ingredient of every node
-key in the [layer forest](/docs/design/layer-tree): the root shard folds
+key in the [layer forest](/docs/design/shards): the root shard folds
 \((h(R), H(c))\), a layer shard folds \((\mathrm{id}(\ell), H(c))\), the
 selection shard folds \((\kappa(\mathrm{parent}), H(c), \mathrm{extra})\) —
 each under its own domain tag: root shard `root-shard-v1`, layer shard
@@ -156,6 +156,6 @@ each under its own domain tag: root shard `root-shard-v1`, layer shard
 so the three key families are disjoint even over equal payloads. The composite selection shard's `extra`
 folds each part's extra, length-prefixed, in source order.
 
-That table plus this page is the complete key system; the
-[layer tree](/docs/design/layer-tree) page proves what it buys
+That table plus this page is the complete key system;
+[Partitioning a Materialisation](/docs/design/shards) shows what it buys
 (completeness, key soundness, reuse).

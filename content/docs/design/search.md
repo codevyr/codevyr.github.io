@@ -223,7 +223,7 @@ layer's key folds its parent's identity: the root shard's *parent is the root la
 so upstream ephemeral layers never enter its key by construction, and the same
 query hits the cache under any upstream context. (The context-dependent delta
 lives in the selection shard, whose parent — and therefore key — is the previous
-statement's spine tip; see [The Layer Tree](/docs/design/layer-tree).) The
+statement's spine tip; see [Partitioning a Materialisation](/docs/design/shards).) The
 root-shard hash folds, in order:
 
 - the literal bytes `"search"` — the verb discriminator
