@@ -1,7 +1,7 @@
 ---
 title: "Design: search()"
 description: "How the search() verb turns a literal-string query into byte-range matches over the whole indexed corpus, without regex, with byte-exact positions, and with a correctness invariant across filter compositions"
-weight: 200
+weight: 160
 ---
 
 The `search()` verb is the closest askl gets to `grep` over the entire indexed corpus.

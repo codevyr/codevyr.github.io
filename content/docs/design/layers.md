@@ -1,7 +1,7 @@
 ---
 title: "Design: Layers and layer operations"
 description: "The layer data model — layer kinds and lifetimes, how a query decides what it can see, the operations that create ephemeral layers, and the isolation guarantee that keeps queries from leaking rows into one another"
-weight: 150
+weight: 138
 ---
 
 Every row in the askl graph — every object, symbol, instance, and reference —
@@ -19,7 +19,7 @@ how a statement's layers are carved into independently cached shards, see
 themselves — content-addressed hashing, the two-phase guard, and lifetime — see
 [Design: Caching](/docs/design/caching).
 
-## Why ephemeral layers exist
+## 1. Why ephemeral layers exist
 
 An ephemeral layer lets a query **modify the index** for the span of a single
 command — overlaying new rows on top of the persistent index without mutating it.
@@ -44,7 +44,7 @@ and it lives in SQL. The price of the approach — intermediate results are
 materialised as rows, and therefore have to be cached — is what the rest of this
 document and [Design: Caching](/docs/design/caching) are about.
 
-## What a layer is
+## 2. What a layer is
 
 A layer is a row in `index.layers` plus every graph row tagged with its id. The
 tag is a plain `layer BIGINT` column carried by the data tables:
@@ -77,7 +77,7 @@ Because every row carries its layer, "which rows does this query see?" reduces t
 `layer = ANY($visible)` clause. Queries never reason about the *shape* of the
 layer graph — only about a flat set of visible ids.
 
-## Kinds and lifetimes
+## 3. Kinds and lifetimes
 
 A layer has a **kind** (its structural role: `root`, `canary`, or
 `ephemeral`) and, orthogonally, a **lifetime** — persistent (committed
@@ -119,7 +119,7 @@ covers deltas.
 > should see *nothing* really sees nothing. It is a protected kind that garbage
 > collection never touches.
 
-## Visibility: roots and materialisations
+## 4. Visibility: roots and materialisations
 
 The full structure the layers form is a **shared, content-addressed tree per
 root** — root shards hang off the root, layer shards off the single layer they
@@ -143,14 +143,14 @@ Two accessors turn this forest into the flat sets queries actually bind:
   checks. Queries see the flat set, never the structure.
 - **`root_ids()`** = just the roots — the persistent slice of visibility
   (today the *whole* persistent slice: one persistent layer per project;
-  see the [persistent closure](#kinds-and-lifetimes) above for the intended
+  see the [persistent closure](#3-kinds-and-lifetimes) above for the intended
   multi-layer form).
 
 A context always starts *rooted* in an explicit set of root layers (an empty set
 is legal and means "no persistent data visible" — used by unit tests and the
 canary). The visible set only ever grows, and only through one path.
 
-## Materialisations: how a query accretes layers
+## 5. Materialisations: how a query accretes layers
 
 Askl evaluates a query one top-level **statement** at a time, in source
 order. A statement whose verbs
@@ -188,12 +188,12 @@ materialisation's layers are all in `visible_ids()` when the next statement's qu
 > to materialise; the executor decides which root each layer hangs off and in
 > what order. This removes a whole class of parent-disagreement bugs.
 
-## Layer operations
+## 6. Layer operations
 
 Three verbs create ephemeral layers. Two are **content verbs** and one is a
 **manual constructor**.
 
-### `search()` and `loc()` — content verbs
+### 6.1. `search()` and `loc()` — content verbs
 
 `search("literal")` and `loc(path, line)` read the persistent corpus
 (`content_store ⋈ objects`) and materialise their results as ephemeral graph
@@ -215,7 +215,7 @@ executor splits that populate into shards is
 [Partitioning a Materialisation](/docs/design/shards); how the shards are stored,
 keyed, and invalidated is [Design: Caching](/docs/design/caching).
 
-### `layer { … }` — the manual constructor
+### 6.2. `layer { … }` — the manual constructor
 
 A `layer { … }` block builds ephemeral graph rows directly from **ephemeral
 operations**, without a populate:
@@ -237,7 +237,7 @@ conceptually, and the seam through which synthetic or externally-supplied graph
 rows can be injected into a query. It is an advanced operation; most queries
 never write one directly.
 
-## Isolation: no query sees another's rows
+## 7. Isolation: no query sees another's rows
 
 Ephemeral layers from unrelated queries coexist in the same tables. The
 guarantee that they stay apart is a single invariant: **every row a query
@@ -258,7 +258,7 @@ nothing inside it escapes the visible set. Combined with the
 guarantee: the SQL only *fetches* visible rows, and the check *proves* it after
 the fact.
 
-## Lifetime and garbage collection
+## 8. Lifetime and garbage collection
 
 Persistent layers are permanent — deleting a root would cascade an entire
 project's index away — so they are protected kinds, excluded from every
@@ -276,7 +276,7 @@ objects, symbols, instances, or refs behind. The full lifetime story —
 content-addressing, the two-phase `populated` guard, LRU, and TTL — is in
 [Design: Caching](/docs/design/caching).
 
-## Composition is union; masking is future
+## 9. Composition is union; masking is future
 
 Today layers only ever **add** rows. A query's result is the union of what each
 visible layer contributes, and union is associative and commutative — the order

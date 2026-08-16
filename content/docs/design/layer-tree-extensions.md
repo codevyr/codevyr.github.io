@@ -36,7 +36,7 @@ content.
 
 The core page also deferred two generalisations: layers other than the
 root carrying corpus content, and the
-[persistent delta layers](/docs/design/layers/#kinds-and-lifetimes) of
+[persistent delta layers](/docs/design/layers/#3-kinds-and-lifetimes) of
 the layer data model. Neither needs new machinery.
 
 The model treats "content" uniformly: \(C(\ell)\) may include corpus
@@ -60,7 +60,7 @@ attributed to ephemeral layers, and index coverage for them), not in this
 algebra.
 
 The same reasoning covers **persistent delta layers**
-([Layers](/docs/design/layers/#kinds-and-lifetimes)): a delta is a
+([Layers](/docs/design/layers/#3-kinds-and-lifetimes)): a delta is a
 content-carrying layer whose lifetime happens to be persistent. It joins
 the closure, appears in \(E_t(R)\), and rides the **layer shard** mechanism —
 a layer shard's key is layer identity plus the input hash \(H(c)\), with no

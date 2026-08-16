@@ -59,7 +59,7 @@ propagation in which neighbouring substatements constrain each other through
 $$o(s) \;=\; \{\, x \in D(s) \;:\; \exists\, y \in o(n).\; (x,y) \in E_{\mathrm{rel}} \,\}$$
 
 (for constraining neighbours; weak neighbours impose no such condition —
-see [Weakness and Bindness](/docs/design/execution-engine/#weakness-and-bindness)).
+see [Weakness and Bindness](/docs/design/execution-engine/#8-weakness-and-bindness)).
 Here \(E_{\mathrm{rel}}\) is the evidence relation: a REFS edge or a
 containment edge, matched **per symbol** — if any instance of a symbol is
 evidenced, all of that symbol's instances survive.

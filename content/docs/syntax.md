@@ -261,7 +261,7 @@ own and is rejected with a hint instead of silently returning an empty result.
 > **Weakness is inferred, not written.** There is no weak marker: bare
 > `{ }` scopes and commands with only filters are non-constraining
 > *echoes* by default, and `select` is what makes a command constraining.
-> See [Weakness and Bindness](/docs/design/execution-engine/#weakness-and-bindness).
+> See [Weakness and Bindness](/docs/design/execution-engine/#8-weakness-and-bindness).
 
 ## Type Selectors
 

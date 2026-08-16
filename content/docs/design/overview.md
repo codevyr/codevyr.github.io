@@ -56,20 +56,6 @@ cache of materialised layers, shared across queries and processes, and
 an in-RAM cache of read results within one process
 ([Caching](/docs/design/caching)).
 
-## Where to start
-
-- **To understand what a query *means***, read
-  [Execution Engine](/docs/design/execution-engine) for composition and
-  weakness, then [Cost-Based Execution](/docs/design/cost-based-execution)
-  for how the same meaning is computed cheaply.
-- **To understand how results are stored and reused**, read
-  [Partitioning a Materialisation](/docs/design/shards) first — it derives the node
-  kinds from the caching problem — then
-  [Layer Keys and Hashing](/docs/design/layer-keys) and
-  [Caching](/docs/design/caching) for the mechanics.
-- **To understand one verb end to end**, read
-  [Design: search()](/docs/design/search).
-
 ## Terminology
 
 The design pages use these terms with fixed meanings:
@@ -123,6 +109,21 @@ The design pages use these terms with fixed meanings:
 - **wave** — one probe iteration of the cost-based executor (wave 0 plus
   the refinement waves), distinct from a materialisation.
 
+## Where to start
+
+- **To understand what a query *means***, read
+  [Execution Engine](/docs/design/execution-engine) for composition and
+  weakness, then [Cost-Based Execution](/docs/design/cost-based-execution)
+  for how the same meaning is computed cheaply.
+- **To understand how results are stored and reused**, read
+  [Layers and layer operations](/docs/design/layers) for the data model,
+  then [Partitioning a Materialisation](/docs/design/shards) — it derives
+  the node kinds from the caching problem — and
+  [Layer Keys and Hashing](/docs/design/layer-keys) and
+  [Caching](/docs/design/caching) for the mechanics.
+- **To understand one verb end to end**, read
+  [Design: search()](/docs/design/search).
+
 ## Pages
 
 **Evaluating a query**
@@ -139,6 +140,9 @@ The design pages use these terms with fixed meanings:
 
 **Storing and reusing results**
 
+- **[Layers and layer operations](/docs/design/layers)** — the layer
+  data model, how a query decides what it can see, and the isolation
+  guarantee.
 - **[Partitioning a Materialisation](/docs/design/shards)** — how a
   statement's materialisation is split into independently cached shards,
   and what their keys guarantee.
@@ -147,11 +151,9 @@ The design pages use these terms with fixed meanings:
   non-root layers.
 - **[Layer Keys and Hashing](/docs/design/layer-keys)** — how a
   command's verbs, filters, and context become those keys.
-- **[Layers and layer operations](/docs/design/layers)** — the layer
-  data model, how a query decides what it can see, and the isolation
-  guarantee.
-- **[Caching](/docs/design/caching)** — the two cache tiers and how the
-  executor splits a populate so the expensive part is paid once.
+- **[Caching](/docs/design/caching)** — the content-addressed source
+  store, the two request-time tiers, and the invariants that keep a
+  cached answer from outliving its state.
 
 **One verb in depth**
 

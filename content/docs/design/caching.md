@@ -1,7 +1,7 @@
 ---
 title: "Design: Caching"
 description: "How askl caches expensive work so repeat and composed queries stay cheap — the content-addressed source store, the two request-time tiers, and the invariants that stop a cached answer from outliving the state it was computed from"
-weight: 175
+weight: 150
 ---
 
 Askl queries are interactive and the corpus is large — a representative
@@ -21,7 +21,7 @@ compositions and re-uploads. It assumes the
 [layer data model](/docs/design/layers), and the shards it stores are derived in
 [Partitioning a Materialisation](/docs/design/shards).
 
-## Content-addressed source content: `content_store`
+## 1. Content-addressed source content: `content_store`
 
 The most foundational cache is the source content itself. Every file's bytes live
 in `content_store`, keyed by the SHA-256 `content_hash` of those bytes — so each
@@ -56,7 +56,7 @@ verb's **inputs** to reuse its computed output. The
 [search design](/docs/design/search) covers the storage layout, the generated
 columns, and the cross-project correctness invariant in full.
 
-## Two request-time tiers
+## 2. Two request-time tiers
 
 On the query hot path — layered on top of `content_store` — askl caches at two
 more levels, for two different costs:
@@ -74,7 +74,7 @@ a command's output (re-running a `search` scan, re-inserting its instances). The
 in-RAM cache avoids **re-reading** already-materialised rows for identical
 read queries within a process.
 
-## Tier 1: the in-RAM SQL result cache
+## 3. Tier 1: the in-RAM SQL result cache
 
 The read path (`cached_load`) is a thin proxy in front of the database. For a
 read query it builds the SQL and its bind parameters, hashes them into a key, and
@@ -104,7 +104,7 @@ rejected — so a pre-mutation read can never land in the cache after the clear.
 This is the *only* thing that clears the cache, and it is what guarantees a
 cached row set never outlives the corpus state it was read from.
 
-## Tier 2: the ephemeral-layer cache
+## 4. Tier 2: the ephemeral-layer cache
 
 Every ephemeral layer is a **content-addressed cache entry**. Its `hash` column
 is a function of the inputs that determine its contents, and it carries a `UNIQUE`
@@ -124,7 +124,7 @@ entirely and `last_used` is bumped — the LRU touch is free, folded into the sa
 statement. On a miss the caller runs the populate closure to fill the layer's
 rows.
 
-### The two-phase `populated` guard
+### 4.1. The two-phase `populated` guard
 
 A cache key is a promise: "a row with this hash holds exactly this content." A
 half-built layer would break that promise — a concurrent reader could hit the
@@ -139,7 +139,7 @@ Because the flag and the rows commit atomically, a layer is only ever observed
 *fully alive* or *absent* — never hollow-but-populated. This is what makes the
 "same hash ⇒ same content" invariant safe under concurrency and retries.
 
-## What the two tiers cache
+## 5. What the two tiers cache
 
 The two tiers cache at different **stages** of the same statement. The
 ephemeral-layer tier caches at **produce** time: a hit means a populate never
@@ -168,7 +168,7 @@ read twice.
 > run the shards, and key each one. No verb branches on "persistent vs
 > ephemeral."
 
-## Filter-aware hashing
+## 6. Filter-aware hashing
 
 A verb's cache key has to reflect the filters in scope, or `project("X")
 search(q)` would collide with an unscoped `search(q)`. It does, without
@@ -186,7 +186,7 @@ a keying change the tag is bumped (`v1 → v2`); old entries simply never hit ag
 and age out via TTL, so an upgrade needs **no cache purge** — stale rows are
 stranded, not aliased.
 
-## Lifetime and invalidation
+## 7. Lifetime and invalidation
 
 An ephemeral layer's life is bounded three ways:
 
@@ -210,7 +210,7 @@ corpus state that was current when it was populated, and it is discarded the
 moment that state changes. The canary sentinel is a protected kind and survives
 every purge.
 
-## Correctness invariants, summarised
+## 8. Correctness invariants, summarised
 
 - **The root shard is a function of `(root identity, verb inputs)` only** —
   its parent in the [layer forest](/docs/design/shards) is

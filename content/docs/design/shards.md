@@ -44,7 +44,7 @@ a stored **identity hash** \(h(R_p)\) that names the committed index
 state it stands for (§4 makes that naming precise); a query runs against
 a set of visible roots \(\mathcal{R}\) together with each root's
 persistent closure — today just the root itself
-([Layers](/docs/design/layers/#kinds-and-lifetimes)). Write
+([Layers](/docs/design/layers/#3-kinds-and-lifetimes)). Write
 \(\Lambda_t(R)\) for the ordered **slice** visible on \(R\)'s project
 after statement \(t\): that closure, followed by the materialisations of
 statements \(1 \dots t\) in order. A query's visibility is the union of
@@ -129,7 +129,7 @@ is a row in `index.layers` together with its content rows, named by a
 hash of the command's inputs and shared across processes and queries.
 Read results have a separate in-RAM cache, keyed on the exact SQL and
 binds, which this page does not model
-([Caching](/docs/design/caching/#two-request-time-tiers)).
+([Caching](/docs/design/caching/#2-two-request-time-tiers)).
 
 **The problem.** A command \(c\) of statement \(t\) has to materialise
 the rows its combined populate produces over everything visible:
@@ -347,7 +347,7 @@ rather than by this algebra:
 - **(A1) Two-phase population.** A node is observable only fully
   written or not at all, and is never rewritten afterwards — the
   upsert-plus-`populated`-flag transaction of
-  [Caching](/docs/design/caching/#the-two-phase-populated-guard). So a
+  [Caching](/docs/design/caching/#41-the-two-phase-populated-guard). So a
   layer's content is written once, and an id that names the layer
   names its rows.
 - **(A2) Id non-reuse.** An id names at most one row over the
@@ -366,7 +366,7 @@ parent's — \(h(R)\) pins \(C(R)\) by (A3), \(\mathrm{id}(\ell)\) pins
 fixed by \(H(c)\) and \(\mathrm{extra}\) alone, so its key determines
 more than it needs to. Eviction preserves the arrangement rather than
 breaking it: the delete-cascade
-([Caching](/docs/design/caching/#lifetime-and-invalidation)) removes a
+([Caching](/docs/design/caching/#7-lifetime-and-invalidation)) removes a
 layer together with everything transitively dependent on it, so a live
 node's ancestry is always present and, by (A1), unchanged.
 
