@@ -5,28 +5,44 @@ weight: 145
 ---
 
 Every node in the [layer forest](/docs/design/shards) is
-content-addressed: its cache key is a hash, and a cache hit means "this node
-already exists". This page explains how those keys are built, bottom-up. One
-rule governs everything on this page:
+content-addressed: its cache key is a hash, and a cache hit means "this
+node already exists, so its populate need not run". A key is therefore a
+promise about what a populate reads, and one rule governs every hash on
+this page:
 
 > **Whatever a populate *reads*, its key must *name* — and nothing more.**
 
-Name too little and two different results collide on one key (a correctness
-bug). Name too much and identical results get distinct keys (a cache
-fragmented for no reason). Each subsection below adds one ingredient.
+Both halves are load-bearing, and they fail in opposite directions. Name
+too little and two populates that read different things collide on one
+key: a query silently gets someone else's rows, which is a correctness
+bug. Name too much and two populates that read the same things are given
+different keys: each entry then hits only in the exact circumstances
+that minted it, and the cache **fragments**. Fragmentation is the
+cheaper failure, but not a cheap one — a key that named the whole
+visible slice would be sound and nearly useless, which is why production
+is carved into shards before it is keyed at all
+([Partitioning a Materialisation](/docs/design/shards)).
 
-## 1. The filter predicate F {#filter-predicate}
+The keys are built bottom-up: the filters a command carries (§1) and
+their hash (§2), each verb's own inputs (§3) and their combination into
+the command hash (§4), why that construction is not circular (§5), and
+the three node keys the forest is addressed by (§6).
 
-Start with a single command. Besides its content verbs it
-carries **filters** — the units of filter composition: a name pattern, a
-type constraint, `project("linux")`, `ignore(...)`. (A *verb* is the
-generic execution unit — see
-[Queries and their Meaning](/docs/design/semantics); most filters
-arrive as verbs, but not all — a bare name string is a filter without
-being a verb.) For keying and
-evaluation the filters are combined into **one predicate** \(F_c\) — the
-conjunction of all of them — represented as a tree: predicate leaves,
-combined by And/Or/Not nodes.
+## 1. The filter predicate {#filter-predicate}
+
+A key must name the filters in scope, or a scoped populate would collide
+with an unscoped one. So the first question is what "the filters on a
+command" even means.
+
+Besides its content verbs a command carries **filters** — the units of
+filter composition: a name pattern, a type constraint,
+`project("linux")`, `ignore(...)`. (A *verb* is the generic execution
+unit — see [Queries and their Meaning](/docs/design/semantics); most
+filters arrive as verbs, but not all — a bare name string is a filter
+without being a verb.) For keying and evaluation the filters are
+combined into **one predicate** \(F_c\) — the conjunction of all of
+them — represented as a tree: predicate leaves, combined by And/Or/Not
+nodes.
 
 Two details, each worth its own sentence:
 
@@ -58,7 +74,10 @@ cache — no filter type is special-cased anywhere.
 
 ## 3. Per-verb input hashes {#verb-input-hashes}
 
-Each content verb \(i\) of command \(c\) gets its own hash:
+A filter hash names the command's context; what remains is the verb
+itself. Each content verb \(i\) of command \(c\) gets its own hash over
+three ingredients — which verb it is, what it was given, and what of the
+command's context its populate actually reads:
 
 $$H(c,i) \;=\; \mathcal{H}\bigl(\, \mathrm{dom}(i) \,\Vert\, \mathrm{inputs}(i) \,\Vert\, \mathcal{H}(F_c) \,\bigr)$$
 
@@ -67,7 +86,13 @@ $$H(c,i) \;=\; \mathcal{H}\bigl(\, \mathrm{dom}(i) \,\Vert\, \mathrm{inputs}(i) 
   argument bytes cannot collide;
 - \(\mathrm{inputs}(i)\) — the verb's own arguments, canonically encoded and
   length-prefixed (for `search`: query bytes, case flag, whole-word flag,
-  limit);
+  limit), together with its **fused scope** where it has one. A verb that
+  restricts its populate to the enclosing container — `search` narrowing
+  its scan to the parent substatement's byte ranges — reads that
+  container's condition, so by the governing rule its key must name it,
+  and the fused scope's condition (or its resolved instance ids) joins
+  the verb's inputs. A verb that does not fuse (`loc`, single-file by
+  construction) adds nothing here;
 - \(\mathcal{H}(F_c)\) — present exactly when the populate *reads*
   \(F_c\), per the governing rule. `search` reads it: \(F_c\)'s object-level
   part narrows the scan's input corpus (a `project(...)` decides which
@@ -100,23 +125,14 @@ different layers despite denoting the same union — harmless for correctness
 (key soundness only needs same-key \(\Rightarrow\) same-content), at worst
 one redundant materialisation.
 
-## 5. Scope fusion {#scope-fusion}
-
-\(F_c\) is not the only command context a verb may fold. A verb that
-restricts its populate to the enclosing container — `search` narrowing its
-scan to the parent substatement's byte ranges — reads that container's
-condition, so by the governing rule its \(H(c,i)\) must name it: the fused
-scope's condition (or its resolved instance ids) joins the verb's inputs.
-A verb that does not fuse (e.g. `loc`, single-file by construction) folds
-nothing extra.
-
-## 6. Acyclicity {#acyclicity}
+## 5. Acyclicity {#acyclicity}
 
 The definitions may look mutually recursive — \(H(c,i)\) folds
-\(\mathcal{H}(F_c)\), and \(F_c\) is built from the same command.
-There is no cycle because the two roles are **disjoint**: \(F_c\) is
-assembled only from *filters*, and content-producing verbs
-contribute nothing to it. The hash flow is a strictly layered DAG:
+\(\mathcal{H}(F_c)\), and \(F_c\) is built from the same command — but the
+two roles are **disjoint**: \(F_c\) is assembled from *filters* alone, and
+content-producing verbs contribute nothing to it. The hash flow is
+therefore a strictly layered DAG, filter leaves at the bottom and a node
+key at the top:
 
 ```mermaid
 graph TD
@@ -128,7 +144,7 @@ graph TD
     I2["inputs: &quot;b&quot;, case,<br/>whole-word, limit"] --> H2
     PS["container scope<br/>(fused, when present)"] -.-> H1
     PS -.-> H2
-    H1 --> HT["H(c)<br/>composite-input-v1 ‖ H(c,1) ‖ H(c,2)"]
+    H1 --> HT["H(c)<br/>command hash"]
     H2 --> HT
     HR["h(R)<br/>root identity"] --> K["κ_root<br/>root-shard key"]
     HT --> K
@@ -141,36 +157,59 @@ graph TD
     class HR,K key;
 ```
 
-Filter leaves at the bottom; the filter hash above them; per-verb hashes
-above that, each also folding its own arguments (and a fused scope when
-present); the command hash at the top.
+## 6. Node keys {#node-keys}
 
-## 7. Node keys {#node-keys}
+\(H(c)\) names a command. A node key must also name the layer content its
+populate is aimed at and the place the node occupies, and which of those
+each kind of node names is settled by
+[the shard partition](/docs/design/shards/#node-kinds): a **root shard**
+\(\mathrm{Sh}_c(R)\) over a root layer \(R\), a **layer shard**
+\(\mathrm{Sh}_c(\ell)\) over one light layer, and a **selection shard**
+\(S_c\) hanging off the previous statement's spine tip. Their byte
+layouts are
 
-The command hash \(H(c)\) is the "command inputs" ingredient of every node
-key in the [shard partition](/docs/design/shards), but only the root
-shard folds it directly. The root shard folds \((h(R), H(c))\),
-yielding \(\kappa_{\mathrm{root}}\); a layer shard then folds
-\((\mathrm{id}(\ell), \kappa_{\mathrm{root}})\) and the selection shard
-folds \((\mathrm{id}(\mathrm{parent}), \kappa_{\mathrm{root}},
-\mathrm{extra})\) — parent *ids*, not parent keys. Each is taken under
-its own domain tag — root shard `root-shard-v1`, layer shard
-`layer-shard-v1`, selection shard `selection-shard-v1` — so the three
-key families are disjoint even over equal payloads, and the two
-non-root families inherit the root shard's project scoping through
-\(\kappa_{\mathrm{root}}\). The composite selection shard's `extra`
-folds each part's extra, length-prefixed, in source order.
+$$\kappa_{\mathrm{root}} \;=\; \mathcal{H}\bigl(\, \mathrm{dom}_{\mathrm{root}} \,\Vert\, h(R) \,\Vert\, H(c) \,\bigr)$$
+$$\kappa\bigl(\mathrm{Sh}_c(\ell)\bigr) \;=\; \mathcal{H}\bigl(\, \mathrm{dom}_{\mathrm{layer}} \,\Vert\, \mathrm{id}(\ell) \,\Vert\, \kappa_{\mathrm{root}} \,\bigr)$$
+$$\kappa\bigl(S_c\bigr) \;=\; \mathcal{H}\bigl(\, \mathrm{dom}_{\mathrm{sel}} \,\Vert\, \mathrm{id}(\mathrm{parent}) \,\Vert\, \kappa_{\mathrm{root}} \,\Vert\, \mathrm{extra} \,\bigr)$$
 
-\(\mathrm{extra}\) is exactly the governing rule applied to a node that reads
-**more than the one input its parent names** (the code's `selection_extra`). An
-input shard needs none: its contents are a function of the command's inputs and
-the rows of the single layer it is over. A `layer { … }` block's ops, by
-contrast, may name specific ephemeral ids from earlier statements, so those
-resolved ids join the key — and a block cannot collide with one that shares
-everything else but its references. For content populates (`search`, `loc`)
-\(\mathrm{extra}\) is empty.
+where \(\mathcal{H}\) is the raw cryptographic hash over byte strings,
+\(\Vert\) byte concatenation, \(h(R)\) the root layer's stored identity
+hash, and \(\mathrm{id}(\cdot)\) a database id — so a non-root node folds
+its parent's *id*, never its parent's key. Every part is fixed-width or
+length-prefixed, so nothing needs a delimiter. Three ingredients deserve
+their own paragraph.
 
-Those three key shapes and the ingredients above are the complete key
-system; [Partitioning a Materialisation](/docs/design/shards) shows
-what it buys — losslessness, trustworthy names, and cross-query
-reuse.
+**The domain tags.** Every hash here begins with a **domain-separation
+tag**: a literal byte string saying what kind of thing is being hashed.
+The node kinds take `root-shard-v1`, `layer-shard-v1` and
+`selection-shard-v1`; the composite command hash of §4 takes
+`composite-input-v1`; a verb's discriminator (`"search"`, `"loc"`) plays
+the same role one level down. Tags keep the families disjoint even over
+identical payloads, and the version suffix is the upgrade path: bumping
+it strands every old entry rather than aliasing it, so a change of
+keying scheme needs no purge
+([Caching](/docs/design/caching/#filter-aware-hashing)).
+
+**\(\kappa_{\mathrm{root}}\) as an ingredient.** Only the root shard
+folds \(H(c)\) directly; the other two reach the command *through*
+\(\kappa_{\mathrm{root}}\). Each is thereby tied to the exact root-shard
+incarnation it was cached against, and inherits its project scoping —
+the root shard folds \(h(R)\), so the visible projects' key spaces are
+already disjoint — for free.
+
+**\(\mathrm{extra}\).** This is the governing rule applied to a node that
+reads **more than the one input its parent names** (the code's
+`selection_extra`). An input shard needs none: its content is a function
+of the command's inputs and the rows of the single layer it is over. A
+`layer { … }` block's ops, by contrast, may name specific ephemeral ids
+from earlier statements, so those resolved ids join the key — and a block
+cannot collide with one that shares everything else but its references.
+Where a selection shard covers several such ops, its \(\mathrm{extra}\)
+folds each part's, length-prefixed, in source order. For content
+populates (`search`, `loc`) it is empty.
+
+Those three shapes and the ingredients above are the whole key system:
+below them, filters and verb arguments; above them, nothing.
+[Partitioning a Materialisation](/docs/design/shards) is where the names
+are spent — on losslessness, trustworthy cache hits, and reuse across
+queries.
