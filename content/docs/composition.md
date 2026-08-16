@@ -88,7 +88,7 @@ mod("api/handlers") { func }
 
 Returns the module and all functions physically located within it.
 
-> **Performance Note:** Inside scopes, bare type selectors like `func` use efficient filter mode—they derive from the parent instead of querying all symbols. To explicitly select all functions regardless of context, use `func(filter="false")`.
+> **Performance Note:** Inside scopes, bare type selectors like `func` are pure constraints—the engine derives their rows from the neighbouring statements instead of querying all symbols, choosing the cheapest direction from measured cardinality. To explicitly enumerate all functions regardless of context, use `func select` (budget-bounded).
 
 ### Find What Module Contains a Function
 
@@ -122,6 +122,37 @@ mod("pkg") derive(type="refs") { func }
 These return very different results:
 - The first uses the implicit refs+has from `mod` — functions found via containment
 - The second explicitly overrides to refs-only — functions found via call references
+
+### Worked Example: "Defined In" vs "Referenced By"
+
+A real query against the Linux kernel that shows why the distinction matters.
+Ask for functions related to the `amdgpu` module that call `drm_dev_enter`:
+
+```askl
+mod("amdgpu") { func { "drm_dev_enter" } }
+```
+
+With the default relationship (refs **or** has), the middle statement matches
+any function the module *references* — which pulls in DRM-core helpers that
+amdgpu merely calls or wires up, not functions amdgpu defines:
+
+- `drm_dev_is_unplugged` (a header inline in `include/drm/drm_drv.h` whose
+  body is a `drm_dev_enter` call) matches because amdgpu code calls it;
+- `drm_show_fdinfo` (in `drm_file.c`) matches because `amdgpu_drv.c`
+  references it in a fops initializer (`.show_fdinfo = drm_show_fdinfo`) —
+  a function-pointer reference is still a reference.
+
+To ask for functions **defined in** the module instead, make the outer
+relationship containment — and pin the inner one back to references, because
+relationship context flows inward and would otherwise ask for functions
+*containing* `drm_dev_enter`:
+
+```askl
+mod("amdgpu") has { func refs { "drm_dev_enter" } }
+```
+
+This keeps only `amdgpu_*` functions whose bodies call `drm_dev_enter` and
+drops the two DRM-core helpers.
 
 ## Relationship Inheritance
 

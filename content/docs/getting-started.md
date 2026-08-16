@@ -83,11 +83,12 @@ This shows all functions that call `cli.Run`.
 Remove uninteresting functions from results:
 
 ```askl
-ignore("builtin")
-main
+ignore("builtin") "main"
 ```
 
 This finds all "main" functions but ignores any with "builtin" in their name.
+(The ignore filter and the name live in one statement — a statement made
+*only* of filters has nothing to select and is rejected with a hint.)
 
 #### Global Ignore (Preamble)
 
@@ -99,8 +100,8 @@ preamble {
     ignore("test")
 }
 
-main
-cli.Run
+"main"
+"cli.Run"
 ```
 
 Place `preamble` with `ignore` statements at the beginning to filter globally. You can also use single-line syntax: `preamble ignore("builtin") ignore("test")`
@@ -154,6 +155,11 @@ A: Add more specific filters or use `ignore` to reduce noise
 
 **Q: My query returns nothing**
 A: Check if parent functions actually call child functions in scopes
+
+**Q: My query errors with "selects nothing … add an anchor"**
+A: A query made only of constraints (`func`, `project(...)`) cannot select
+anything by itself. Add a name (`"main"`), a `search(...)`, or `select` to
+explicitly enumerate everything the constraints allow (budget-bounded)
 
 **Q: Function names don't match**
 A: Remember matching is exact - check spelling and case

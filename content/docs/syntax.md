@@ -188,7 +188,7 @@ Verbs in Askl fall into three categories:
 
 | Verb | Description |
 |------|-------------|
-| `"name"` / `g"pattern"` / `select(name="...")` | Select symbols matching a name (exact) or glob pattern |
+| `"name"` / `g"pattern"` | Select symbols matching a name (exact) or glob pattern |
 | `func("name")` | Select functions matching a name |
 | `type("name")` | Select types matching a name |
 | `data("name")` | Select data symbols (variables, constants) matching a name |
@@ -200,8 +200,17 @@ Verbs in Askl fall into three categories:
 | `dir("name")` | Select directories matching a name |
 | `use("label")` / `#label` | Select symbols from a labeled statement |
 | `search("text")` | Full-text search: create a symbol per byte-range match of `text` in indexed source content |
+| `select` | Make the statement **binding**: enumerate everything the statement's filters allow (budget-bounded), and keep the statement constraining in composition |
 
-Multiple selectors in a statement combine—all must match for a symbol to be included.
+Multiple selectors in a statement are **OR-ed** — the statement selects the union of
+their matches, constrained by the statement's filters.
+
+Every query group — a *component*: one or more top-level statements with
+their nested scopes, joined by label references — must contain at least one
+**anchor**: a name, a name filter (`filter("exact_name"/"compound_name", …)`),
+`search(...)`, `loc(...)`, a layer literal, or `select`. A group made only of constraints
+(`func`, `project(...)`, `filter("type", ...)`) cannot produce anything on its
+own and is rejected with a hint instead of silently returning an empty result.
 
 ### Filters
 
@@ -226,7 +235,13 @@ Multiple selectors in a statement combine—all must match for a symbol to be in
 > - Without a name (`func`) → **Filter** (constrains to type, **inherits to all descendants**)
 > - With a name (`func("foo")`) → **Selector** (queries matching symbols, does NOT inherit)
 > - Use `any` in a child scope to remove inherited type filtering
-> - Explicit: `func(filter="false")` forces selector mode
+> - `func select` enumerates all functions (budget-bounded)
+>
+> The old `filter="true"/"false"` argument was a manual query-plan toggle and has
+> been **removed** (queries using it fail to parse with a migration hint): the
+> engine now plans execution from measured cardinality. Use `select` where you
+> wrote `filter="false"`; for namespace scoping (`mod("x", filter="true") "name"`)
+> use composition (`mod("x") has { "name" }`) or `filter("compound_name", "x")`.
 
 ### Modifiers
 
@@ -242,7 +257,11 @@ Multiple selectors in a statement combine—all must match for a symbol to be in
 | `unnest` | Include transitive children/references and all containment levels |
 | `any` | Remove inherited type filtering (match all symbol types) |
 | `!` (forced) | Force display of relationships |
-| `?` (weak) | Make statement non-constraining |
+
+> **Weakness is inferred, not written.** There is no weak marker: bare
+> `{ }` scopes and commands with only filters are non-constraining
+> *echoes* by default, and `select` is what makes a command constraining.
+> See [Weakness and Bindness](/docs/design/execution-engine/#weakness-and-bindness).
 
 ## Type Selectors
 
@@ -253,11 +272,13 @@ Type selectors target specific symbol types. As explained above, they act as **s
 | Syntax | Role | Behavior |
 |--------|------|----------|
 | `func("name")` | Selector | Queries functions matching "name" |
-| `func` | Filter | Constrains to functions; derives from parent |
-| `func(filter="false")` | Selector | Queries ALL functions |
-| `func(filter="true")` | Filter | Explicit filter (same as bare `func`) |
+| `func` | Filter | Constrains to functions; derives from its neighbours |
+| `func select` | Selector | Enumerates ALL functions (budget-bounded) |
 
-**Why this default?** Querying all symbols of a type is expensive. Inside scopes, filter mode is much more efficient—it derives from the parent's contained symbols instead of querying the entire database.
+**Why this default?** A bare type predicate denotes a huge set; on its own it is
+a constraint, not a selection. The engine decides *how* each statement is
+materialised from measured cardinality (capped probes + semi-join refinement),
+so the old `filter=` plan toggle is gone.
 
 ### func
 
@@ -266,7 +287,7 @@ Selects function symbols. Explicitly sets the relationship to **references only*
 ```askl
 func("handler")         /* Functions matching "handler" */
 func("http.Handler")    /* Functions matching both "http" and "Handler" */
-func(filter="false")    /* All functions (explicit selector mode) */
+func select             /* All functions (budget-bounded) */
 file("/main.go") { func }  /* Functions in main.go (filter mode) */
 ```
 
@@ -277,7 +298,7 @@ Selects type symbols (structs, interfaces, type declarations). Like `func`, expl
 ```askl
 type("Request")          /* Types matching "Request" */
 type("http.Request")     /* Types matching both "http" and "Request" */
-type(filter="false")     /* All types */
+type select              /* All types (budget-bounded) */
 mod("net/http") { type }  /* Types in module (filter mode) */
 type("Request") { type }  /* Types referenced by Request */
 ```
@@ -291,7 +312,7 @@ Selects data symbols (package-level variables and constants). Like `func` and `t
 ```askl
 data("Debug")            /* Data symbols matching "Debug" */
 data("config.Debug")     /* Data symbols matching both "config" and "Debug" */
-data(filter="false")     /* All data symbols */
+data select              /* All data symbols (budget-bounded) */
 mod("config") { data }   /* Data symbols in module (filter mode) */
 ```
 
@@ -303,7 +324,7 @@ Selects macro symbols (C/C++ preprocessor `#define` directives). Like `func` and
 
 ```askl
 macro("LOG")              /* Macros matching "LOG" */
-macro(filter="false")     /* All macros */
+macro select              /* All macros (budget-bounded) */
 func("main") { macro }   /* Macros referenced by main */
 macro("LOG") { func }    /* Functions called inside LOG's body */
 ```
@@ -334,7 +355,7 @@ Selects module/package symbols. Implicitly sets **refs+has** for children, so co
 ```askl
 mod("util")              /* Modules matching "util" */
 mod("k8s.io/api")        /* Modules matching the pattern */
-mod(filter="false")      /* All modules */
+mod select               /* All modules (budget-bounded) */
 mod("pkg") { func }      /* Functions in module (no has needed) */
 ```
 
@@ -347,7 +368,7 @@ Selects file symbols. Implicitly sets **refs+has** for children.
 ```askl
 file("main.go")          /* Files whose last component is "main_go" (leaf match) */
 file("/src/main.go")     /* Exact path match */
-file(filter="false")     /* All files */
+file select              /* All files (budget-bounded) */
 dir("/src") { file }     /* Files in /src directory */
 ```
 
@@ -360,7 +381,7 @@ Selects directory symbols. Implicitly sets **refs+has** for children.
 ```askl
 dir("cmd")               /* Directories named "cmd" (leaf match) */
 dir("/src")              /* Exact path match for /src */
-dir(filter="false")      /* All directories */
+dir select               /* All directories (budget-bounded) */
 dir("/") { file }        /* Files in root directory (no has needed) */
 dir("/") {}              /* Shows directories and files (default child types) */
 ```
@@ -515,35 +536,55 @@ Container type selectors participate in this inheritance:
 
 ## Generic Verbs
 
-### select (Symbol Selection)
+### select (Binding Enumeration)
 
-Selects symbols whose names match a specific pattern.
+`select` takes no arguments. It makes the statement **binding** — "I want
+instances from this" — which does three things at once: it anchors the
+component (so the anchor rule is satisfied), it makes its own command
+constraining in composition (never a weak echo), and it enumerates
+everything the command's filters allow, bounded by the result budget with
+a truncation warning.
 
-**Full syntax:**
 ```askl
-select(name="cli.Run")
+select                       /* Everything visible, budget-bounded */
+func select                  /* All functions, budget-bounded */
+project("linux") select      /* Everything in project linux, budget-bounded */
+select filter("compound_name", "test")  /* Everything under namespace test */
 ```
 
-**Shortcut syntax:**
-```askl
-"cli.Run"
-```
+### Name selection (quoted strings)
 
-**Examples:**
+Selecting by name is written directly as a quoted string — there is no
+functional form:
+
 ```askl
 "main"          /* Symbols whose last name component is "main" */
 "http.Handler"  /* Symbols with both "http" and "Handler" in their path */
-"user.Create"   /* Symbols with both "user" and "Create" in their path */
+g"user.*ate"    /* Glob pattern (see Pattern Matching above) */
 ```
+
+### loc (Location Anchor)
+
+Creates an ephemeral symbol at a specific file location — an anchor for
+"start from this line":
+
+```askl
+loc("main.c", "42")                    /* file path (suffix match), 1-based line */
+loc("main.c", "42", project="linux")   /* restricted to one project */
+loc("drm_drv.c", "120") { func }       /* what does this line's code call? */
+```
+
+Both positional arguments are quoted; the line must be ≥ 1.
 
 ### filter (Generic Filter)
 
 A generic filter verb supporting multiple filter kinds.
 
 ```askl
-filter("type", "func")              /* Filter to functions (same as bare func) */
-filter("compound_name", "main")     /* Filter by compound name match */
-filter("exact_name", "/src/main.go") /* Filter by exact name */
+filter("type", "func") "main"       /* Constrain a name search to functions */
+filter("type", "func") select        /* All functions (type filter + select) */
+filter("compound_name", "main")     /* Namespace/compound-name anchor */
+filter("exact_name", "/src/main.go") /* Exact-name anchor */
 ```
 
 **Filter kinds:**
@@ -630,7 +671,7 @@ search("EXPORT_SYMBOL", whole_word="true", limit=2000)
     /* Higher limit for a common macro */
 ```
 
-See **[Design: search()](/docs/design/search)** for the full architecture — the four SQL variants, the pg_trgm / tsvector pipeline, the byte-offset PL/pgSQL helper, the ephemeral-layer cache key composition, and the correctness invariant across filter compositions.
+See **[Design: search()](/docs/design/search)** for the full architecture — the four SQL variants, the pg_trgm / tsvector pipeline, the byte-offset PL/pgSQL helper, and the correctness invariant across filter compositions. The results `search()` produces live on a per-query **ephemeral layer**; see **[Design: Layers](/docs/design/layers)** for that data model and **[Design: Caching](/docs/design/caching)** for how repeat and composed queries are kept cheap.
 
 ### forced (Override Relationships)
 
@@ -694,8 +735,29 @@ The `#` prefix is shorthand for `use("...")`.
 
 ```askl
 label("handlers") "handler" {}
-"main" { !use("handlers", forced=true) }  /* Force the relationship */
+"main" { use("handlers", forced="true") }  /* Force the relationship */
 ```
+
+### Ordering: labels reference earlier statements
+
+A label may only be referenced from a **later** top-level statement:
+the statement that defines the label must come earlier in the query
+(statements are separated by `;` or a newline). For a label consumed
+by a layer-creating verb — e.g. a `@label` referenced inside a
+`layer { … }` block's ephemeral operations — this is enforced at parse
+time: a same-statement or forward reference is rejected, with a hint to
+split the query with `;` so the labelled statement comes first.
+
+```askl
+@handlers "handler" {} ; "main" { #handlers }   /* OK — label defined earlier */
+```
+
+The rule exists because top-level statements are the query's only time
+axis: each statement materialises its ephemeral layers atomically
+against the visibility left by earlier statements, and **nesting does
+not sequence materialisation** — everything inside one statement runs
+against the same pre-statement state, so only an earlier statement's
+label names a selection that is guaranteed complete.
 
 ## Shortcuts
 
@@ -813,7 +875,8 @@ Multi-level relationships:
 
 ### Required Elements
 
-Every global statement must contain at least one selection verb at some nesting level.
+Every component (a top-level statement with its nested scopes, plus any
+label-linked ones) must contain at least one anchor at some nesting level.
 
 **Valid examples:**
 ```askl
@@ -822,10 +885,17 @@ Every global statement must contain at least one selection verb at some nesting 
 {{{"foo"}}}         /* Deeply nested selection */
 ```
 
-**Invalid example:**
+**Invalid examples** (rejected with a hint naming the fix):
 ```askl
-{{{{}}}}            /* No selection anywhere */
+func                /* Constraint only: which functions? */
+project("linux")    /* Constraint only: everything in linux is not a selection */
+func { file }       /* A whole component of constraints */
+"a"; func           /* Second component has no anchor (per-component rule) */
 ```
+
+Degenerate structure without any constraints (`{{{{}}}}`) is *legal* and
+simply empty — only components that constrain something are held to the
+anchor rule.
 
 ### Scopes Filter Results
 
