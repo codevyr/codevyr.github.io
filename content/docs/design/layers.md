@@ -14,8 +14,9 @@ conjures on the fly.
 This document is about that data model — what a layer is, the two kinds, how a
 query decides which layers it can see, the operations that create ephemeral
 layers, and how askl guarantees that one query can never see another's rows. For
-how layers are *cached* — how the executor shards the content map by layer,
-content-addressed hashing, and lifetime — see
+how a statement's layers are carved into independently cached shards, see
+[Partitioning a Materialisation](/docs/design/shards); for the cache tiers
+themselves — content-addressed hashing, the two-phase guard, and lifetime — see
 [Design: Caching](/docs/design/caching).
 
 ## Why ephemeral layers exist
@@ -210,8 +211,9 @@ These verbs are **layer-agnostic**. Each provides one populate of the shape
 the executor decides which layers
 to run it over. Today it reads the persistent (root) layers; the same populate is
 what future ephemeral *content* layers will flow through automatically. How the
-executor shards and caches that populate is the subject of
-[Design: Caching](/docs/design/caching).
+executor splits that populate into shards is
+[Partitioning a Materialisation](/docs/design/shards); how the shards are stored,
+keyed, and invalidated is [Design: Caching](/docs/design/caching).
 
 ### `layer { … }` — the manual constructor
 
@@ -279,8 +281,11 @@ content-addressing, the two-phase `populated` guard, LRU, and TTL — is in
 Today layers only ever **add** rows. A query's result is the union of what each
 visible layer contributes, and union is associative and commutative — the order
 of the chain doesn't change *what* you see, only *when* a layer became visible.
-That is what lets the executor cache each layer's contribution independently (see
-[Design: Caching](/docs/design/caching)).
+That is the premise the whole cache rests on: it is what lets a command's
+contribution be carved per layer and each part cached independently
+([Partitioning a Materialisation](/docs/design/shards/#2-verb-semantics-and-the-decomposition-axiom)).
+The carve is therefore exact only for **masking-free composition** — which is
+what the next paragraph reserves.
 
 **Masking** — a higher layer *removing* or *shadowing* a lower layer's rows — is
 a deliberate non-feature for now. It would make composition order-dependent (a

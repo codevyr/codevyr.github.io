@@ -101,5 +101,5 @@ cells stop being cheap.
   partition, and what its keys guarantee.
 - [Layers and layer operations](/docs/design/layers) — the data model, the
   materialisation/lockstep mechanics, and the isolation guarantee.
-- [Caching](/docs/design/caching) — the cache tiers and how the executor
-  shards (splits) the content map across the forest's nodes.
+- [Caching](/docs/design/caching) — the cache tiers, and the store, guard, and
+  lifetime rules every shard rides on.

@@ -1,6 +1,6 @@
 ---
 title: "Design: Caching"
-description: "How askl caches expensive work so repeat and composed queries stay cheap — the two cache tiers, the content-addressed ephemeral-layer cache, and how the executor shards the content map by layer so the costly scan is cached once and reused under any context while staying correct across filter compositions and re-uploads"
+description: "How askl caches expensive work so repeat and composed queries stay cheap — the content-addressed source store, the two request-time tiers, and the invariants that stop a cached answer from outliving the state it was computed from"
 weight: 175
 ---
 
@@ -15,10 +15,11 @@ This document explains askl's caching from the ground up: the content-addressed
 store that keeps each unique file content stored and indexed exactly once
 (`content_store`), and the two request-time caches layered on top of it. It then
 covers, in depth, the design of the ephemeral-layer cache — how a layer becomes a
-content-addressed cache entry, how the executor shards the content map by layer so the
-expensive part is cached **once and reused under any context**, and the
-invariants that keep the cache correct across filter compositions and re-uploads.
-It assumes the [layer data model](/docs/design/layers).
+content-addressed cache entry, what each tier caches and where the shards it
+stores come from, and the invariants that keep the cache correct across filter
+compositions and re-uploads. It assumes the
+[layer data model](/docs/design/layers), and the shards it stores are derived in
+[Partitioning a Materialisation](/docs/design/shards).
 
 ## Content-addressed source content: `content_store`
 
@@ -138,114 +139,34 @@ Because the flag and the rows commit atomically, a layer is only ever observed
 *fully alive* or *absent* — never hollow-but-populated. This is what makes the
 "same hash ⇒ same content" invariant safe under concurrency and retries.
 
-## Sharding the query by layer
+## What the two tiers cache
 
-A command's **content map** \(f\) ([The Command Algebra](/docs/design/command-algebra)) is **layer-agnostic** (see [Layers](/docs/design/layers)): it computes its
-result over whatever layers are visible and treats all of them the same. More
-than that, a *decomposable* content map — one satisfying the
-[layer-decomposability axiom](/docs/design/shards/#2-verb-semantics-and-the-decomposition-axiom);
-content populates qualify, cross-layer operations like `layer { … }` do not —
-is a **union-homomorphism**:
+The two tiers cache at different **stages** of the same statement. The
+ephemeral-layer tier caches at **produce** time: a hit means a populate never
+runs — no corpus scan, no rows inserted. The in-RAM tier caches at **read**
+time: a hit means an already-materialised row set is not fetched again. Neither
+substitutes for the other, and only the produce-time tier needs a *shape*.
 
-```
-f(L₁ ∪ L₂ ∪ … ∪ Lₙ)  =  f(L₁) ∪ f(L₂) ∪ … ∪ f(Lₙ)
-```
+That shape is not "one entry per command". A command's materialisation is
+**partitioned into shards** — a root shard over the committed corpus, one layer
+shard per light layer it reads, and one selection shard for whatever it builds
+from earlier statements' outputs — each keyed on the one input it reads, so the
+most volatile input can never invalidate the most expensive work. The three node
+kinds, the keys they earn, and the axiom that makes the split lossless are
+derived in
+[Partitioning a Materialisation](/docs/design/shards/#3-partitioning-the-three-node-kinds).
+What this page supplies is the machinery underneath: the upsert that implements
+the lookup, the two-phase guard above, and the keying and lifetime rules below.
 
-so its result over a set of layers is the union of its result over each layer on
-its own. That composability is the lever the executor pulls. Because the shards
-compose by union, each `f(Lₖ)` can be computed **independently** — which is
-exactly what makes both **parallelism** (shards run concurrently) and
-**cacheability** (each shard keyed and stored on its own) possible. This document
-is about the caching half; the same property is what lets the executor fan the
-work out across connections.
+Because the shards compose by union, each is not only cacheable on its own key
+but **computable on its own**, so the executor fans them out across connections
+and runs them concurrently. Cacheability and parallelism are the same property
+read twice.
 
-So instead of running one query over the whole visible set and keying the result
-on that set, the executor **shards the content map by layer**: it runs `f(Lₖ)` for each
-visible layer, caches each shard on its own key, and composes the shards by
-union. `f(root)` and `f(eph layer)` are the *same operation* applied to different
-layers — one query, sharded, not two different computations.
-
-```
-      f over the visible set  =  union of one shard per layer
-                            │
-   ┌───────────┬────────────┼────────────┬───────────┐
-   ▼           ▼            ▼            ▼           ▼
- f(root)     f(L₁)        f(L₂)   …    f(Lₙ)
-   │           │            │            │
- key:        key:         key:         key:
- (root id,   (inputs,     (inputs,     (inputs,
-  inputs)     L₁)          L₂)          Lₙ)
-   └───────────┴──── each shard caches on its OWN key ────┴───────┘
-```
-
-The win is that each shard's key is stable: `f(Lₖ)` is keyed on
-`(verb inputs, Lₖ)` alone, so any later query whose visible set contains `Lₖ`
-reuses that shard, and adding a layer re-runs only the one new shard. Keying a
-single fused result on the whole visible set instead would throw the cache away
-every time the set changes.
-
-Two consequences follow from *which* layer a shard is over — the only asymmetry
-between them:
-
-- **The root shard is chain-independent.** A root layer's identity — a
-  project's committed index — does not depend on any query's ephemeral chain, so
-  `f(root)` is keyed by `root_shard_hash(root, command_inputs)` and nothing else.
-  It is cached once and reused under every chain and every co-visible set of
-  projects. This matters because, for a content populate, the root shard does all the
-  expensive work (for `search`, the corpus scan). Salting per *root* (not per visible set)
-  means identical inputs against different projects key different shards, and a
-  project's shard is reused no matter which other projects are co-visible.
-  In the code: `root_shard_populate`, keyed by `root_shard_hash(root, input_hash)`.
-- **A layer shard is keyed on its layer.** `f(Lₖ)` keys on that layer's id,
-  so it is reused exactly when `Lₖ` is visible again —
-  extending the visible set re-materialises only the new layer's shard; every
-  older shard is a hit. Layer shards are **lifetime-agnostic**: a future *persistent*
-  delta layer rides the same mechanism, its layer shards simply becoming durable
-  cache wins ("the root shard scans the heavy corpus" is a cost assumption — deltas
-  are assumed light).
-
-The third node kind, the **selection shard**, holds whatever does not decompose
-per layer (see below); together root shard, layer shard, and selection shard are the three node
-kinds of the [partition](/docs/design/shards/#3-partitioning-the-three-node-kinds).
-
-This decomposition is exact for **decomposable verbs under masking-free
-composition** — union is associative and commutative (see
-[Layers](/docs/design/layers)); the non-decomposable remainder lives in the
-selection shard. Today ephemeral
-layers hold no *content* for a content populate to read, so every eph-layer shard is
-empty and the root shard carries the whole result; the per-layer machinery
-becomes observable once ephemeral layers carry content.
-
-> **Note:** The verb supplies only the composable query — written as if it could
-> read any layer; the executor alone decides how to split it by layer id, run the
-> shards, and key each one. No verb branches on "persistent vs ephemeral."
-
-### When a shard reads more than one layer
-
-A pure content shard `f(Lₖ)` depends only on the command's inputs and the rows on
-`Lₖ`. Some operations depend on *more*: a `layer { … }` block's ops can name
-specific ephemeral ids from earlier in the chain, so that shard's contents depend
-on those referenced ids, not on a single layer alone. **`selection_extra`** is
-that extra key material — whatever a shard reads *beyond* the one layer it is
-over. It is empty for content populates (`search`, `loc`); it is non-empty only for
-ops that reference ephemeral ids, which are then keyed on those ids too, so a
-block can't collide with one that shares everything else but its references.
-
-## Composition is union in two dimensions
-
-The same union that composes *layers* also composes *selectors*. Several
-selectors in one command are ORed:
-
-```askl
-search("foo") search("bar")   // union of both searches, one merged layer
-```
-
-The executor folds the selector parts into one set of shards per root: every part
-runs into the same root shard, keyed on the parts in source order so two
-commands that differ only in their parts key differently. Both axes — over
-selectors and over layers — compose by the same associative union, which is why
-the cache can key each shard independently and still reconstruct the whole by
-set-union at read time.
+> **Note:** The verb supplies only the composable populate — written as if it
+> could read any layer; the executor alone decides how to split it by layer id,
+> run the shards, and key each one. No verb branches on "persistent vs
+> ephemeral."
 
 ## Filter-aware hashing
 

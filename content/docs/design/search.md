@@ -249,11 +249,11 @@ root-shard hash with the root's identity (`root_shard_hash`) so each
 project's root shard is
 cached independently of which other projects are co-visible. Because this
 root shard is parented on the root, an ephemeral layer added upstream
-can't invalidate it — the corpus scan is computed once and reused everywhere. How
-the executor shards the content map by layer, per-root salting, and the two-phase
-`populated` guard are general machinery covered in
-[Design: Caching](/docs/design/caching); the rest of this section is
-search-specific.
+can't invalidate it — the corpus scan is computed once and reused everywhere. The
+partition into shards and the per-root salting are general machinery
+([Partitioning a Materialisation](/docs/design/shards)), as is the two-phase
+`populated` guard ([Design: Caching](/docs/design/caching)); the rest of this
+section is search-specific.
 
 ```
                   Root-shard hash inputs (SHA-256)

@@ -156,6 +156,15 @@ each under its own domain tag: root shard `root-shard-v1`, layer shard
 so the three key families are disjoint even over equal payloads. The composite selection shard's `extra`
 folds each part's extra, length-prefixed, in source order.
 
+\(\mathrm{extra}\) is exactly the governing rule applied to a node that reads
+**more than the one input its parent names** (the code's `selection_extra`). An
+input shard needs none: its contents are a function of the command's inputs and
+the rows of the single layer it is over. A `layer { … }` block's ops, by
+contrast, may name specific ephemeral ids from earlier statements, so those
+resolved ids join the key — and a block cannot collide with one that shares
+everything else but its references. For content populates (`search`, `loc`)
+\(\mathrm{extra}\) is empty.
+
 That table plus this page is the complete key system;
 [Partitioning a Materialisation](/docs/design/shards) shows what it buys
 (completeness, key soundness, reuse).
