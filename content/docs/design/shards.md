@@ -6,20 +6,24 @@ aliases:
   - /docs/design/layer-tree/
 ---
 
-A statement's **materialisation** — the rows its layer-creating commands
-write, phase M of
-[the life of a query](/docs/design/overview/#the-life-of-a-query) — has
-to be stored somewhere. *How* it is stored is the question this page
-answers, and it is a caching question rather than a bookkeeping one. A
-materialisation is not one opaque result: it is a set of contributions
-with wildly different costs and lifetimes, and holding it as a single
-unit lets the cheapest and most volatile of them decide the fate of the
-most expensive. So the shape of the storage is what the caching problem
-dictates, and this page derives it — the notation the derivation needs
-(§1), the axiom a verb must satisfy for the split to lose nothing (§2),
-the carve itself and the key each part earns (§3), why those keys can be
-trusted (§4) — then a worked example and the operating rules that
-follow.
+A statement's **materialisation** is the set of rows its layer-creating
+commands write. Those rows have to be stored somewhere, and *how* they
+are stored turns out to be a caching question rather than a bookkeeping
+one.
+
+A materialisation is not one opaque result. It is a set of
+contributions with wildly different costs and lifetimes, and holding it
+as a single unit lets the cheapest and most volatile of them decide the
+fate of the most expensive — one ephemeral layer upstream, and a scan of
+the whole corpus is redone.
+
+So the storage takes the shape the caching problem dictates, and this
+page derives it: §1 fixes the notation, §2 states the axiom a verb must
+satisfy for the split to lose nothing, §3 carves the materialisation and
+gives each part the key it earns, and §4 says why those keys can be
+trusted; a worked example and the operating rules follow. For where
+materialisation sits in the pipeline, see
+[the life of a query](/docs/design/overview/#the-life-of-a-query).
 
 ## 1. Notation
 
