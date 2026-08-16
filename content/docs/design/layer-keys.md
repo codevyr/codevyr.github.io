@@ -44,7 +44,7 @@ Two details, each worth its own sentence:
 
 ## 2. The filter hash {#filter-hash}
 
-\(\mathrm{hash}(F)\) is computed recursively over the predicate tree:
+\(\mathcal{H}(F)\) is computed recursively over the predicate tree:
 
 - each **leaf** hashes its own semantics: which predicate it is, and its
   arguments in canonical encoding;
@@ -60,7 +60,7 @@ cache — no filter type is special-cased anywhere.
 
 Each content verb \(i\) of command \(c\) gets its own hash:
 
-$$H(c,i) \;=\; H\bigl(\, \mathrm{dom}(i) \,\Vert\, \mathrm{inputs}(i) \,\Vert\, \mathrm{hash}(F) \,\bigr)$$
+$$H(c,i) \;=\; \mathcal{H}\bigl(\, \mathrm{dom}(i) \,\Vert\, \mathrm{inputs}(i) \,\Vert\, \mathcal{H}(F) \,\bigr)$$
 
 - \(\mathrm{dom}(i)\) — the verb discriminator (`"search"`, `"loc"`, …): a
   domain-separation tag, so different verbs with coincidentally equal
@@ -68,13 +68,13 @@ $$H(c,i) \;=\; H\bigl(\, \mathrm{dom}(i) \,\Vert\, \mathrm{inputs}(i) \,\Vert\, 
 - \(\mathrm{inputs}(i)\) — the verb's own arguments, canonically encoded and
   length-prefixed (for `search`: query bytes, case flag, whole-word flag,
   limit);
-- \(\mathrm{hash}(F)\) — present exactly when the populate *reads*
+- \(\mathcal{H}(F)\) — present exactly when the populate *reads*
   \(F\), per the governing rule. `search` reads it: \(F\)'s object-level
   part narrows the scan's input corpus (a `project(...)` decides which
   projects' content is scanned at all), so the key must name it — and it
   names the whole tree via the shared §2 hash rather than extracting the
   object part, since that part is derived from the full tree. A verb
-  whose populate reads nothing of \(F\) folds no \(\mathrm{hash}(F)\):
+  whose populate reads nothing of \(F\) folds no \(\mathcal{H}(F)\):
   `loc`'s path and `project=` arguments already fix what it reads, and
   \(F\) reaches its rows only at read time.
 
@@ -92,7 +92,7 @@ unchanged by the composition machinery — single-verb commands stay
 cache-warm). For several verbs the per-verb hashes fold in **source
 order**:
 
-$$H(c) \;=\; H\bigl(\, \text{composite-input-v1} \,\Vert\, H(c,1) \,\Vert\, \dots \,\Vert\, H(c,m) \,\bigr)$$
+$$H(c) \;=\; \mathcal{H}\bigl(\, \mathrm{dom}_{\mathrm{composite}} \,\Vert\, H(c,1) \,\Vert\, \dots \,\Vert\, H(c,n) \,\bigr)$$
 
 Each part is a fixed 32 bytes, so the concatenation needs no delimiters.
 Source order does mean `search("a") search("b")` and its reverse key
@@ -113,7 +113,7 @@ nothing extra.
 ## 6. Acyclicity {#acyclicity}
 
 The definitions may look mutually recursive — \(H(c,i)\) folds
-\(\mathrm{hash}(F)\), and \(F\) is built from the same command.
+\(\mathcal{H}(F)\), and \(F\) is built from the same command.
 There is no cycle because the two roles are **disjoint**: \(F\) is
 assembled only from *filters*, and content-producing verbs
 contribute nothing to it. The hash flow is a strictly layered DAG:
@@ -130,7 +130,7 @@ graph TD
     PS -.-> H2
     H1 --> HT["H(c)<br/>composite-input-v1 ‖ H(c,1) ‖ H(c,2)"]
     H2 --> HT
-    HR["h(R)<br/>root identity"] --> K["κ(B)<br/>root-shard key"]
+    HR["h(R)<br/>root identity"] --> K["κ_root<br/>root-shard key"]
     HT --> K
 
     classDef filt fill:#f6efe2,stroke:#c9a35a;
@@ -148,12 +148,17 @@ present); the command hash at the top.
 ## 7. Node keys {#node-keys}
 
 The command hash \(H(c)\) is the "command inputs" ingredient of every node
-key in the [layer forest](/docs/design/shards): the root shard folds
-\((h(R), H(c))\), a layer shard folds \((\mathrm{id}(\ell), H(c))\), the
-selection shard folds \((\kappa(\mathrm{parent}), H(c), \mathrm{extra})\) —
-each under its own domain tag: root shard `root-shard-v1`, layer shard
-`layer-shard-v1`, selection shard `selection-shard-v1`,
-so the three key families are disjoint even over equal payloads. The composite selection shard's `extra`
+key in the [shard partition](/docs/design/shards), but only the root
+shard folds it directly. The root shard folds \((h(R), H(c))\),
+yielding \(\kappa_{\mathrm{root}}\); a layer shard then folds
+\((\mathrm{id}(\ell), \kappa_{\mathrm{root}})\) and the selection shard
+folds \((\mathrm{id}(\mathrm{parent}), \kappa_{\mathrm{root}},
+\mathrm{extra})\) — parent *ids*, not parent keys. Each is taken under
+its own domain tag — root shard `root-shard-v1`, layer shard
+`layer-shard-v1`, selection shard `selection-shard-v1` — so the three
+key families are disjoint even over equal payloads, and the two
+non-root families inherit the root shard's project scoping through
+\(\kappa_{\mathrm{root}}\). The composite selection shard's `extra`
 folds each part's extra, length-prefixed, in source order.
 
 \(\mathrm{extra}\) is exactly the governing rule applied to a node that reads
@@ -165,6 +170,7 @@ resolved ids join the key — and a block cannot collide with one that shares
 everything else but its references. For content populates (`search`, `loc`)
 \(\mathrm{extra}\) is empty.
 
-That table plus this page is the complete key system;
-[Partitioning a Materialisation](/docs/design/shards) shows what it buys
-(completeness, key soundness, reuse).
+Those three key shapes and the ingredients above are the complete key
+system; [Partitioning a Materialisation](/docs/design/shards) shows
+what it buys — losslessness, trustworthy names, and cross-query
+reuse.

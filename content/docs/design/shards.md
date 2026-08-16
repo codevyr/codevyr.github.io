@@ -266,16 +266,20 @@ form:
 | Node | Content | Parent | Key |
 |---|---|---|---|
 | **Root shard** \(\mathrm{Sh}_c(R)\) | \(U_c(C(R))\) | \(R\) | \(\kappa = \mathcal{H}(\, \mathrm{dom}_{\mathrm{root}} \,\Vert\, h(R) \,\Vert\, H(c) \,)\) |
-| **Layer shard** \(\mathrm{Sh}_c(\ell)\), one per \(\ell \in E_t(R)\) | \(U_c(C(\ell))\) | \(\ell\) | \(\kappa = \mathcal{H}(\, \mathrm{dom}_{\mathrm{layer}} \,\Vert\, \mathrm{id}(\ell) \,\Vert\, H(c) \,)\) |
-| **Selection shard** \(S_c(R)\) | \(\bigcup_{o \in O_c} g_c(o)\) | \(\mathrm{tip}_{t-1}(R)\) | \(\kappa = \mathcal{H}(\, \mathrm{dom}_{\mathrm{sel}} \,\Vert\, \mathrm{id}(\mathrm{tip}_{t-1}(R)) \,\Vert\, H(c) \,\Vert\, \mathrm{extra} \,)\) |
+| **Layer shard** \(\mathrm{Sh}_c(\ell)\), one per \(\ell \in E_t(R)\) | \(U_c(C(\ell))\) | \(\ell\) | \(\kappa = \mathcal{H}(\, \mathrm{dom}_{\mathrm{layer}} \,\Vert\, \mathrm{id}(\ell) \,\Vert\, \kappa_{\mathrm{root}} \,)\) |
+| **Selection shard** \(S_c(R)\) | \(\bigcup_{o \in O_c} g_c(o)\) | \(\mathrm{tip}_{t-1}(R)\) | \(\kappa = \mathcal{H}(\, \mathrm{dom}_{\mathrm{sel}} \,\Vert\, \mathrm{id}(\mathrm{tip}_{t-1}(R)) \,\Vert\, \kappa_{\mathrm{root}} \,\Vert\, \mathrm{extra} \,)\) |
 
 In the key column: \(\mathcal{H}(\cdot)\) is the raw cryptographic
-hash over byte strings, taking the command digest \(H(c)\) as one
-input; \(\Vert\) is byte concatenation; \(\mathrm{id}(\ell)\) and
-\(\mathrm{id}(\cdot)\) are database ids — the selection shard folds the
-tip's *id*, not its key; \(\mathrm{extra}\) covers any verb-specific
-additions; the \(\mathrm{dom}\) prefixes are per-kind domain-separation
-tags (`root-shard-v1`, `layer-shard-v1`, `selection-shard-v1`). In the
+hash over byte strings; \(\Vert\) is byte concatenation;
+\(\mathrm{id}(\cdot)\) is a database id, so the selection shard folds
+the tip's *id*, not its key; \(\mathrm{extra}\) is what a node reads
+beyond the one input its parent names; the \(\mathrm{dom}\) prefixes
+are per-kind domain-separation tags, and the byte layout is
+[Keys](/docs/design/layer-keys)' subject. Note that the two non-root
+keys fold \(\kappa_{\mathrm{root}}\), the root shard's own key, rather
+than \(H(c)\) directly: a layer or selection shard is thus tied to the
+exact root-shard incarnation it was cached against, and inherits its
+project scoping for free. In the
 current deployment no verb writes content onto an ephemeral layer, so
 \(E_t(R)\) is empty and each command materialises just a root shard
 and a selection shard.

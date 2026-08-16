@@ -5,7 +5,8 @@ weight: 100
 ---
 
 The askl execution engine is a **monotone worklist propagation system**. Each substatement of a
-query holds a *selection* — a set of symbols — and the engine iterates, narrowing selections and
+query holds a *selection* — a set of symbol instances, closed per symbol — and the engine
+iterates, narrowing selections and
 propagating constraints between substatements until nothing more changes.
 
 This document explains the algorithm, its data model, and why it terminates correctly.

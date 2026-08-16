@@ -53,7 +53,7 @@ tag is a plain `layer BIGINT` column carried by the data tables:
 layers {
     id         BIGINT PRIMARY KEY   -- the layer's id
     parent_id  BIGINT               -- the layer this one was chained onto
-    root_shard_id BIGINT            -- links an eph-layer shard to the root shard it caches against
+    root_shard_id BIGINT            -- ties a shard's lifetime to the root shard it was cached against
     kind       TEXT                 -- 'root' | 'canary' | 'ephemeral' (coarse: not per-verb)
     hash       BYTEA UNIQUE         -- content-addressed cache key (see Caching)
     populated  BOOL                 -- two-phase-commit guard (see Caching)
@@ -289,6 +289,6 @@ what the next paragraph reserves.
 
 **Masking** — a higher layer *removing* or *shadowing* a lower layer's rows — is
 a deliberate non-feature for now. It would make composition order-dependent (a
-fold, not a union) and is out of scope until there is a concrete need. The data
-model already reserves room for it: `root_shard_id` on an eph-layer shard records the
-root shard whose rows a future mask would subtract from.
+fold, not a union) and is out of scope until there is a concrete need. Nothing in the
+data model would have to change: a mask would be one more content-bearing
+layer, subtracting where the others add.
