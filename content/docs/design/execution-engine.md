@@ -4,9 +4,9 @@ description: "How the askl query engine evaluates queries using a monotone workl
 weight: 100
 ---
 
-The askl execution engine is a **monotone worklist propagation system**. Each query statement
-holds a *selection* — a set of symbols — and the engine iterates, narrowing selections and
-propagating constraints between statements until nothing more changes.
+The askl execution engine is a **monotone worklist propagation system**. Each substatement of a
+query holds a *selection* — a set of symbols — and the engine iterates, narrowing selections and
+propagating constraints between substatements until nothing more changes.
 
 This document explains the algorithm, its data model, and why it terminates correctly.
 
@@ -15,8 +15,8 @@ This document explains the algorithm, its data model, and why it terminates corr
 A [worklist algorithm](https://en.wikipedia.org/wiki/Data-flow_analysis) is a standard technique
 from dataflow analysis (Kildall 1973). The key ingredients are:
 
-- A **lattice** of values that can only move in one direction (here: symbol sets that only shrink)
-- A **monotone transfer function** per node (here: constrain a statement's selection based on its neighbours)
+- A **lattice** of values that can only move in one direction (here: selections — instance sets, closed per symbol — that only shrink)
+- A **monotone transfer function** per node (here: constrain a substatement's selection based on its neighbours)
 - A **worklist** of nodes whose outputs have changed and whose successors need re-evaluation
 
 Because the lattice has finite height and the transfer functions are monotone (selections never grow),
@@ -24,44 +24,44 @@ the algorithm is guaranteed to terminate: each reschedule removes at least one s
 and there are only finitely many symbols.
 
 The closest analogy in practice is a **constraint propagation network** (as in Gecode or MiniCP):
-each statement is a constraint variable, each scope nesting is a constraint, and the engine propagates
+each substatement is a constraint variable, each scope nesting is a constraint, and the engine propagates
 until all constraints are simultaneously satisfied.
 
-## Statements and Selections
+## Substatements and Selections
 
-A query is a tree of *statements*, each with:
+A query is a forest of *substatements* (see the [terminology](/docs/design/overview/#terminology)), each with:
 
 - A **command** — one or more verbs (selectors) that describe what symbols to find
-- A **scope** — child statements that constrain or extend the result
+- A **scope** — child substatements that constrain or extend the result
 - A **selection** — the current symbol set, held in the registry and updated in-place
 
 ```askl
-func("processRequest") {   /* statement A: functions named processRequest */
-    "validate"             /* statement B: symbols named validate, called by A */
+func("processRequest") {   /* substatement A: functions named processRequest */
+    "validate"             /* substatement B: symbols named validate, called by A */
 }
 ```
 
-Statements are related by their nesting: A is the parent of B. The engine propagates selections
+Substatements are related by their nesting: A is the parent of B. The engine propagates selections
 down (parent tells child which symbols to consider) and up (child constrains the parent to only
 those that have matching children).
 
 ## Dependency Kinds
 
-Each statement has a list of *dependencies* — other statements whose selections must exist before
+Each substatement has a list of *dependencies* — other substatements whose selections must exist before
 it can produce useful output. There are two kinds:
 
 | Kind | Meaning |
 |------|---------|
-| `Necessary` | This dep must have a selection before the statement can produce any output |
+| `Necessary` | This dep must have a selection before the substatement can produce any output |
 | `Sufficient` | This dep can provide initial output; additional sufficient deps constrain further |
 
-**Sufficient** is the common case. A child statement depends on its parent to derive its initial
+**Sufficient** is the common case. A child substatement depends on its parent to derive its initial
 selection (e.g., look up `"validate"` only among symbols called by the selected functions). Any
 one satisfied sufficient dep enables the first output; the rest narrow it.
 
-**Necessary** applies when a statement literally cannot compute without another statement's result:
+**Necessary** applies when a substatement literally cannot compute without another substatement's result:
 
-- `use("label")` — waits for the statement with `label("label")` to resolve. There is nothing
+- `use("label")` — waits for the substatement with `label("label")` to resolve. There is nothing
   to look up until the provider has a selection.
 - `forced` — waits for its parent to propagate. It derives its selection directly from the
   parent's result and has nothing to compute on its own.
@@ -83,23 +83,59 @@ ExecutionState {
 }
 ```
 
-The `dependents` list is the notification graph: when statement X's selection changes, every
+The `dependents` list is the notification graph: when substatement X's selection changes, every
 entry in `X.dependents` is notified so it can re-evaluate.
 
-## The Three Phases
+## The Pipeline
 
-The engine runs three phases in sequence inside `compute_nodes`:
+`compute_nodes` runs: `build_dependency_graph` → the anchor-completeness
+check → `mark_weak_statements` → `compute_roots` (which itself runs three
+phases per top-level statement, statements in source order: **Phase M**
+materialise layers, **Phase P** probe, **Phase R** read) →
+`run_worklist`. Each statement fully finishes M, P, R before the next
+starts — the statement separator (`;` or a newline) is the only time
+axis a query has. The sections below cover the
+graph build, the initial selections, and the worklist; probing is
+formalised on the
+[Cost-Based Execution](/docs/design/cost-based-execution) page.
 
-### 1. `initialize_roots`
+### 1. Initial selections (`compute_roots`)
 
-Runs all selectors concurrently against the database. Each statement executes its command
-independently — no parent/child relationship is considered yet.
+Phase M materialises any ephemeral layers — **one materialisation per
+layer-creating statement**. A visibility snapshot is taken once, before
+any of the statement's commands materialise, and every `@label` argument is
+resolved up front from the completed selection of the *earlier*
+statement that defines it (the parse-time ordering rule rejects
+same-statement and forward references, so no mid-phase read is ever
+needed). The statement's layer-bearing commands then materialise
+**concurrently** against that same pre-statement snapshot: no command
+sees a statement-mate's layers at materialise time — nesting does not
+sequence — so the calls are independent by construction. Outcomes are
+applied in pre-order (completion order is unobservable), the
+statement's layers enter visibility as one atomic materialisation pushed after
+the batch, and each command keeps its own layers — attribution by
+layer id is what gives every command its own selection.
 
-- `"processRequest"` → queries DB for functions with that name → initial selection
-- `func`, `type`, bare type selectors → queries DB → initial selection
+Phase P then probes every
+eligible substatement (anchored, with a fusable single-query predicate):
+a probe fetches up to `--probe-cap`+1 instance ids for the full predicate;
+at or under the cap the substatement is **resolved** — the id set is its
+exact denotation, its Phase-R read becomes a primary-key fetch, and the
+ids feed neighbouring scopes in place of predicates the index would have
+to materialise. Capped and derive-only substatements re-probe in
+refinement waves under semi-join roles from resolved neighbours, to a
+fixpoint. Phase R then computes the initial selections concurrently,
+under the statement-complete visibility — a nested layer creator's
+rows are visible to its ancestors' neighbourhood reads and vice versa,
+which is what makes `search("a") { search("b") }` compose:
+
+- `"processRequest"` → resolved by its probe (or predicate query) → initial selection
+- `func`, bare type selectors, `project(...)` → pure constraints: no
+  query of their own; they derive from neighbours during propagation
 - `use("label")`, `forced` → produce no initial selection (they wait for propagation)
 
-After this phase, root statements have selections; dependency-only statements do not.
+The worklist below is unchanged by probing — probes only ever hand it
+smaller, exact inputs.
 
 ### 2. `build_dependency_graph`
 
@@ -107,8 +143,8 @@ Wires up the `dependencies` / `dependents` edges based on query structure:
 
 | Relationship | dep added to | role | kind |
 |---|---|---|---|
-| Statement → its parent | `child.dependencies` | `Child` | `Necessary` if `forced`, else `Sufficient` |
-| Statement → label provider | `statement.dependencies` | `User` | `Necessary` |
+| Substatement → its parent | `child.dependencies` | `Child` | `Necessary` if `forced`, else `Sufficient` |
+| Substatement → label provider | `statement.dependencies` | `User` | `Necessary` |
 | Parent → each child (notify) | `parent.dependents` | `Child` | — |
 | Child → its parent (notify) | `child.dependents` | `Parent` | — |
 | Provider → user (notify) | `provider.dependents` | `User` | — |
@@ -122,7 +158,7 @@ it can start propagating as soon as it has its own initial selection.
 The main propagation loop:
 
 ```
-seed worklist: every statement that has_selection() after initialize_roots
+seed worklist: every statement that has_selection() after compute_roots
 
 while worklist is not empty:
     stmt = pop statement with smallest selection (fewest symbols first)
@@ -134,15 +170,15 @@ while worklist is not empty:
             worklist.schedule(dependent)
 ```
 
-**Seeding.** Only statements with an initial selection enter the worklist. Statements like
-`use("label")` or `forced` produce no selection in `initialize_roots`, so they start outside
-the worklist. They enter only when notified by the statements they depend on.
+**Seeding.** Only substatements with an initial selection enter the worklist. Substatements like
+`use("label")` or `forced` produce no selection in `compute_roots`, so they start outside
+the worklist. They enter only when notified by the substatements they depend on.
 
-**Priority.** Statements are popped in order of selection size (fewest symbols first). This
-is a heuristic: processing the most-constrained statements first tends to propagate tight
+**Priority.** Substatements are popped in order of selection size (fewest symbols first). This
+is a heuristic: processing the most-constrained substatements first tends to propagate tight
 constraints early, reducing wasted work downstream.
 
-**Notification.** When statement A is popped and has a selection, it notifies each entry in
+**Notification.** When substatement A is popped and has a selection, it notifies each entry in
 `A.dependents`:
 
 - **Child role** (parent notifying child): child derives its selection from the parent's
@@ -151,7 +187,7 @@ constraints early, reducing wasted work downstream.
   parent have selections, then merges their selections (union) and constrains the parent.
   This ensures a parent like `func { "a" ; "b" }` retains functions that call *either*
   `"a"` *or* `"b"`, not only those that call both.
-- **User role** (provider notifying user): user statement derives from the provider's
+- **User role** (provider notifying user): the user substatement derives from the provider's
   selection, as if the provider's symbols were its scope.
 
 **`PropagationResult`**. `notify()` returns `PropagationResult { changed: bool }` — a clean
@@ -165,14 +201,14 @@ The algorithm terminates because:
 1. **Selections only shrink.** Derivation and constraining are monotone: they can only remove
    symbols, never add them. The lattice height is bounded by the total number of symbols.
 
-2. **Each reschedule reflects a real change.** The worklist only adds a statement when
+2. **Each reschedule reflects a real change.** The worklist only adds a substatement when
    `result.changed` is true — meaning at least one symbol was removed from its selection.
 
-3. **Unresolvable statements never enter.** A statement like `use("missing_label")` — where
+3. **Unresolvable substatements never enter.** A substatement like `use("missing_label")` — where
    the label does not exist — is caught at `build_dependency_graph` time and returns an
-   error immediately. A statement whose provider has no selection simply never gets notified
+   error immediately. A substatement whose provider has no selection simply never gets notified
    and never enters the worklist. The loop terminates naturally; it does not need to detect
-   or special-case unresolvable statements.
+   or special-case unresolvable substatements.
 
 ## Example: Label Resolution
 
@@ -189,7 +225,7 @@ Execution trace:
 
 | Phase | Event |
 |---|---|
-| `initialize_roots` | A gets selection: `[Handle_1, Handle_2]`. B, C, D get no selection. |
+| `compute_roots` | A gets selection: `[Handle_1, Handle_2]`. B, C, D get no selection. |
 | `build_dependency_graph` | C.dependencies = `[(A, User, Necessary)]`. D.dependencies = `[(C, Child, Sufficient)]`. |
 | `run_worklist` seed | A enters worklist (has selection). B does not (no selection yet). |
 | Pop A | A notifies B (Child): B derives `[respond_1, respond_2]`. B enters worklist. |
@@ -201,12 +237,68 @@ Execution trace:
 
 Each iteration removes symbols or adds nothing. The loop exits when the worklist is empty.
 
-## Weak Statements
+## Weakness and Bindness
 
-A statement is **weak** if it contains only non-constraining verbs and either has no parent,
-no children, or all its children are also weak. Weak statements do not constrain the
-selections of their dependencies — they contribute nodes to the result graph but do not
-filter what their parents or children show.
+Two related but distinct properties govern how substatements participate in a
+query, at two different levels.
 
-The `mark_weak_statements` phase (between `build_dependency_graph` and `run_worklist`)
-computes the weak flag for all statements before propagation begins.
+### Weakness (command-level, compositional)
+
+**Weakness answers: does this command's selection constrain its neighbours?**
+A weak substatement is a display echo — it contributes nodes and edges to the
+result graph, but an empty match does not eliminate its parent or children.
+A strong substatement's selection participates in the composition: a parent
+survives only if it actually relates to something the strong child selected.
+
+A substatement is a *weakness candidate* when its command is **non-constraining**:
+every selector is a unit verb or a bare (nameless) type selector. Filters
+alone do not make a command constraining — `filter("compound_name", "x")` on
+an otherwise bare substatement leaves it a candidate.
+
+`mark_weak_statements` (between `build_dependency_graph` and `run_worklist`)
+then iterates the **propagation rule** to a fixpoint. A candidate becomes
+weak iff:
+
+- its parent is weak (or it is top-level), **or**
+- all of its children are weak (vacuously true for a leaf).
+
+The consequence worth internalising: a candidate **sandwiched between a
+strong parent and a strong child stays strong**. In
+
+```askl
+select filter("compound_name", "test", inherit="true") {{ "b" }}
+```
+
+the outer command is strong (`select`), the leaf `"b"` is strong, so the bare
+middle scope — a candidate — satisfies neither weakening condition and
+constrains: only callers of `test.b` that the outer level also relates to
+survive. Drop the `select` and the outer command becomes a top-level
+candidate, turns weak, weakness flows through the middle, and the same query
+becomes an echo that shows *every* namespace-matching caller.
+
+### Bindness (component-level, outcome)
+
+**Bindness answers: does this component demand instances at all?**
+(A *component*: one or more statements connected by label
+references — see the [terminology](/docs/design/overview/#terminology).) A binding
+component wants results; a non-binding one is structure or directive.
+`preamble project("ucx")` is non-binding — it configures the query. `{{}}`
+is non-binding structure. Non-binding components are silently empty;
+binding ones must be *satisfiable*: each needs at least one **anchor**
+(a name, `search(...)`, `loc(...)`, a layer literal, or `select`), otherwise
+the query is rejected with a hint.
+
+### `select` bridges the two levels
+
+`select` is the user-visible verb for both properties, named for the outcome:
+
+- at the **component** level it declares the component binding — and since it carries
+  an always-true anchor, a `select`-bearing component is always satisfiable
+  (an unanchored command with `select` enumerates everything its filters
+  allow, bounded by the result budget);
+- at its **command** it implies strength — wanting instances *here* means
+  this command's selection participates in the composition, so a
+  `select`-carrying command is never a weakness candidate.
+
+Weakness otherwise keeps its defaults: anchored commands are constraining
+by construction, and the propagation rule above decides the rest.
