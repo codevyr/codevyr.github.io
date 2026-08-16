@@ -24,7 +24,7 @@ generic execution unit — see
 [Queries and their Meaning](/docs/design/semantics); most filters
 arrive as verbs, but not all — a bare name string is a filter without
 being a verb.) For keying and
-evaluation the filters are combined into **one predicate** \(F\) — the
+evaluation the filters are combined into **one predicate** \(F_c\) — the
 conjunction of all of them — represented as a tree: predicate leaves,
 combined by And/Or/Not nodes.
 
@@ -33,18 +33,18 @@ Two details, each worth its own sentence:
 - **Inheritance.** "All of them" means all filters *on the
   command* — which includes filters inherited from enclosing
   substatements (inheritable filters are copied into child commands at
-  parse time). A nested command's \(F\) therefore already reflects its
+  parse time). A nested command's \(F_c\) therefore already reflects its
   ancestors' constraints; nothing later needs to walk the enclosing
   substatements.
-- **Uniformity.** \(F\) applies to every content verb of the command
+- **Uniformity.** \(F_c\) applies to every content verb of the command
   alike — physically at read time, where every read of the command's layers
-  conjoins the same \(F\) over their rows; a populate consults at most
-  \(F\)'s object-narrowing part to restrict what it scans
+  conjoins the same \(F_c\) over their rows; a populate consults at most
+  \(F_c\)'s object-narrowing part to restrict what it scans
   ([semantics §5](/docs/design/semantics/#content-map)).
 
 ## 2. The filter hash {#filter-hash}
 
-\(\mathcal{H}(F)\) is computed recursively over the predicate tree:
+\(\mathcal{H}(F_c)\) is computed recursively over the predicate tree:
 
 - each **leaf** hashes its own semantics: which predicate it is, and its
   arguments in canonical encoding;
@@ -60,7 +60,7 @@ cache — no filter type is special-cased anywhere.
 
 Each content verb \(i\) of command \(c\) gets its own hash:
 
-$$H(c,i) \;=\; \mathcal{H}\bigl(\, \mathrm{dom}(i) \,\Vert\, \mathrm{inputs}(i) \,\Vert\, \mathcal{H}(F) \,\bigr)$$
+$$H(c,i) \;=\; \mathcal{H}\bigl(\, \mathrm{dom}(i) \,\Vert\, \mathrm{inputs}(i) \,\Vert\, \mathcal{H}(F_c) \,\bigr)$$
 
 - \(\mathrm{dom}(i)\) — the verb discriminator (`"search"`, `"loc"`, …): a
   domain-separation tag, so different verbs with coincidentally equal
@@ -68,15 +68,15 @@ $$H(c,i) \;=\; \mathcal{H}\bigl(\, \mathrm{dom}(i) \,\Vert\, \mathrm{inputs}(i) 
 - \(\mathrm{inputs}(i)\) — the verb's own arguments, canonically encoded and
   length-prefixed (for `search`: query bytes, case flag, whole-word flag,
   limit);
-- \(\mathcal{H}(F)\) — present exactly when the populate *reads*
-  \(F\), per the governing rule. `search` reads it: \(F\)'s object-level
+- \(\mathcal{H}(F_c)\) — present exactly when the populate *reads*
+  \(F_c\), per the governing rule. `search` reads it: \(F_c\)'s object-level
   part narrows the scan's input corpus (a `project(...)` decides which
   projects' content is scanned at all), so the key must name it — and it
   names the whole tree via the shared §2 hash rather than extracting the
   object part, since that part is derived from the full tree. A verb
-  whose populate reads nothing of \(F\) folds no \(\mathcal{H}(F)\):
+  whose populate reads nothing of \(F_c\) folds no \(\mathcal{H}(F_c)\):
   `loc`'s path and `project=` arguments already fix what it reads, and
-  \(F\) reaches its rows only at read time.
+  \(F_c\) reaches its rows only at read time.
 
 ## 4. Combining verbs: the command hash {#command-hash}
 
@@ -102,7 +102,7 @@ one redundant materialisation.
 
 ## 5. Scope fusion {#scope-fusion}
 
-\(F\) is not the only command context a verb may fold. A verb that
+\(F_c\) is not the only command context a verb may fold. A verb that
 restricts its populate to the enclosing container — `search` narrowing its
 scan to the parent substatement's byte ranges — reads that container's
 condition, so by the governing rule its \(H(c,i)\) must name it: the fused
@@ -113,14 +113,14 @@ nothing extra.
 ## 6. Acyclicity {#acyclicity}
 
 The definitions may look mutually recursive — \(H(c,i)\) folds
-\(\mathcal{H}(F)\), and \(F\) is built from the same command.
-There is no cycle because the two roles are **disjoint**: \(F\) is
+\(\mathcal{H}(F_c)\), and \(F_c\) is built from the same command.
+There is no cycle because the two roles are **disjoint**: \(F_c\) is
 assembled only from *filters*, and content-producing verbs
 contribute nothing to it. The hash flow is a strictly layered DAG:
 
 ```mermaid
 graph TD
-    L1["filter leaf<br/>project(&quot;linux&quot;)"] --> F["hash(F)<br/>filter-tree hash"]
+    L1["filter leaf<br/>project(&quot;linux&quot;)"] --> F["ℋ(F_c)<br/>filter-tree hash"]
     L2["filter leaf<br/>type = func"] --> F
     F --> H1["H(c,1)<br/>search(&quot;a&quot;)"]
     F --> H2["H(c,2)<br/>search(&quot;b&quot;)"]

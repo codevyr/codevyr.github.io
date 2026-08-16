@@ -89,11 +89,12 @@ The design pages use these terms with fixed meanings:
   a bare name string contributes one without being a verb.
 - **component** — one or more statements connected by label references;
   the unit of the anchor-completeness rule and of bindness.
-- **selection** — the set of instances a statement's read produces
-  (the worklist fixpoint), written \(o(s)\): a statement's *output*.
-  The referenced outputs \(O_c\) of a command are earlier statements' \(o(s')\).
-  Distinct from the selection *function* \(\sigma_g\), which filters a
-  row set.
+- **selection** — the set of instances that survives the worklist
+  fixpoint, written \(N_c\) for one command and \(N_s\) for a whole
+  statement ([semantics](/docs/design/semantics/#selections)). The
+  referenced outputs \(O_c\) of a command are earlier statements'
+  selections. Distinct from the selection *function* \(\sigma_g\), which
+  filters a row set.
 - **materialisation** — the set of layers one layer-creating statement
   produces on one project, appended to visibility atomically
   (`push_materialisation`). Statements and their materialisations

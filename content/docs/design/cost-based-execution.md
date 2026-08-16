@@ -33,30 +33,30 @@ statements.
 
 ## 2. Model {#model}
 
-**Substatements and denotations.** A query is a forest of substatements.
-Each substatement \(s\) carries one **predicate** \(P(s)\) — the conjunction
-of its filters with the disjunction of its selector branches — and
-denotes
+**Substatements and denotations.** A query is a forest of substatements,
+each carrying exactly one command; this page indexes by the command
+\(c\), following [Queries and their Meaning](/docs/design/semantics).
+That page defines the two objects planning starts from — a command's own
+**predicate** \(P(c)\), its filters conjoined with the disjunction of its
+selector branches, and its **denotation**
 
-$$D(s) \;=\; \{\, x \in \mathrm{Inst} \;:\; x \models P(s) \,\}\,,$$
+$$D(c) \;=\; \{\, x \in \mathrm{Inst} \;:\; x \models P(c) \,\}\,,$$
 
-the set of symbol instances satisfying the predicate. Each nested
+the symbol instances satisfying it, drawn from \(\mathrm{Inst}\), the
+universe of instances the query can see
+([semantics §6](/docs/design/semantics/#denotation)). Each nested
 substatement also carries a **relationship** to its parent,
-\(\mathrm{rel}(s) \subseteq \{\mathrm{REFS}, \mathrm{HAS}\}\), naming which
+\(\mathrm{rel}(c) \subseteq \{\mathrm{REFS}, \mathrm{HAS}\}\), naming which
 edge kinds relate their instances (the `{ }` default is the union
 \(\mathrm{REFS} \cup \mathrm{HAS}\): either kind counts).
 
-**Composition.** Execution does not return \(D(s)\); it returns the **final
-selection** \(o(s) \subseteq D(s)\) — the selection as a *set* of
-instances (\(o\) is the docs' symbol for a statement's output; the
-referenced outputs \(O_c\) of the layer pages are earlier statements'
-\(o(s')\), and the
-selection as a *function* is a different object, \(\sigma\)) — the
-fixpoint of the worklist
-propagation in which neighbouring substatements constrain each other through
-**edge evidence**: for substatements \(s\) with neighbour \(n\),
+**Composition.** Execution does not return \(D(c)\); it returns the
+**selection** \(N_c \subseteq D(c)\), the fixpoint of the worklist
+propagation in which neighbouring substatements constrain each other
+through **edge evidence** ([semantics §7](/docs/design/semantics/#selections)):
+for a command \(c\) with neighbour \(n\),
 
-$$o(s) \;=\; \{\, x \in D(s) \;:\; \exists\, y \in o(n).\; (x,y) \in E_{\mathrm{rel}} \,\}$$
+$$N_c \;=\; \{\, x \in D(c) \;:\; \exists\, y \in N_n.\; (x,y) \in E_{\mathrm{rel}} \,\}$$
 
 (for constraining neighbours; weak neighbours impose no such condition —
 see [Weakness and Bindness](/docs/design/semantics/#weakness-and-bindness)).
@@ -65,70 +65,76 @@ containment edge, matched **per symbol** — if any instance of a symbol is
 evidenced, all of that symbol's instances survive.
 
 **Monotonicity.** The worklist only ever narrows: at every intermediate
-stage the current selection of any substatement is a superset of \(o(s)\).
+stage the current selection of any substatement is a superset of \(N_c\).
 This is the single fact every argument below leans on.
 
 The planning problem: decide, per substatement, whether to materialise
-\(D(s)\) independently, derive it from neighbours, and in what order —
+\(D(c)\) independently, derive it from neighbours, and in what order —
 using the index itself as the cardinality oracle.
 
 ## 3. Static eligibility: anchors {#anchors}
 
-Materialising \(D(s)\) is only *meaningful* for some substatements. A
+Materialising \(D(c)\) is only *meaningful* for some substatements. A
 substatement is **anchored** iff its predicate contains at least one
-**anchor**: a name pattern, a content predicate (`search`), a location
-(`loc`), a layer literal, or the explicit `select` (an always-true anchor
-with budget-bounded enumeration). Type predicates, `project(...)`, and
-`preamble` are pure constraints: their denotations are enormous and never
-worth materialising unconstrained; such substatements only ever derive.
+**anchor** — a verb that can produce instances on its own, defined
+together with the completeness rule it feeds in
+[semantics §9.2](/docs/design/semantics/#bindness).
 
-The **completeness rule** is the static counterpart: every **component**
-(one or more statements connected by label references — see the
-[terminology](/docs/design/overview/#terminology)) must
-contain an anchor, or the query is rejected with a hint — a component of
-pure constraints denotes nothing materialisable and used to fail silently.
-
-Anchoring answers *may this substatement drive?* Cost, measured next,
-answers *should it, and when?*
+What matters to planning is the converse. A command of pure constraints —
+bare type selectors, `project(...)`, `preamble` — has a denotation the
+size of the index, never worth materialising unconstrained, so such
+substatements only ever derive. Anchoring answers *may this substatement
+drive?* Cost, measured next, answers *should it, and when?*
 
 ## 4. Probes {#probes}
 
-**Definition.** For a predicate \(P\) and cap \(c\), a **probe** evaluates
-\(P\) projected to instance ids with `LIMIT c+1`:
+**Definition.** A **probe** asks one question about a set \(X\) of
+instances: *are there at most \(k\) of them, and if so, which?* For the
+cap \(k\),
 
-$$\mathrm{probe}(P, c) \;=\; \begin{cases} \mathrm{ids}(D(P)) & \text{if } |D(P)| \le c \\ \textbf{Capped} & \text{otherwise} \end{cases}$$
+$$\mathrm{probe}(X, k) \;=\; \begin{cases} \mathrm{ids}(X) & \text{if } |X| \le k \\ \textbf{Capped} & \text{otherwise} \end{cases}$$
+
+One database statement answers both halves: the engine fetches instance
+ids for \(X\) and stops after \(k+1\) of them — a `LIMIT k+1` over an
+ids-only projection. A \((k{+}1)\)-th row means **Capped** and the fetched
+ids are discarded; anything short of it is the whole of \(X\).
 
 Two deliberate choices. First, the probe is an id-fetch, **not**
 `COUNT(*)`: the scan cost is identical, but a below-cap probe returns the
-*exact denotation* — the substatement never evaluates \(P\) again. Second,
-the projection is ids-only, so a capped probe's cost is bounded at \(c+1\)
-id rows regardless of how wide the predicate's rows are.
+set *exactly* — the substatement never evaluates its predicate again.
+Second, the projection is ids-only, so a capped probe's cost is bounded
+at \(k+1\) id rows regardless of how wide the underlying rows are.
 
 **Wave 0.** After layer materialisation, every eligible substatement
-(anchored, with a fusable single-query predicate) probes concurrently.
-Below-cap substatements become **resolved**, holding
-\(\mathrm{ids}(D(s))\); the rest are **capped**.
+(anchored, with a fusable single-query predicate) probes its denotation
+concurrently. Those below the cap become **resolved**, holding
+\(\mathrm{ids}(D(c))\); the rest are **capped**.
 
 ## 5. Refinement {#refinement}
 
-**Roles.** For a resolved neighbour \(n\) of a capped (or derive-only)
-substatement \(s\), a **role** is the semi-join image of \(n\)'s resolved
-set under one relationship, lifted to symbol level:
+**Roles.** Write \(\mathrm{res}(\cdot)\) for a substatement's resolved id
+set. For a resolved neighbour \(n\) of a capped (or derive-only) command
+\(c\), a **role** is the semi-join image of \(\mathrm{res}(n)\) under one
+relationship, lifted to symbol level:
 
-$$\rho_{\mathrm{rel}}(N) \;=\; \{\, x \in \mathrm{Inst} \;:\; \mathrm{sym}(x) \in \mathrm{rel\text{-}image}(N) \,\}$$
+$$\rho_{\mathrm{rel}}(\mathrm{res}(n)) \;=\; \{\, x \in \mathrm{Inst} \;:\; \mathrm{sym}(x) \in \mathrm{rel\text{-}image}(\mathrm{res}(n)) \,\}$$
 
-The lifting matters: because evidence matches per symbol (§2), roles must
-too, or a refined set could drop a co-instance the worklist would have
-kept.
+Here \(\mathrm{sym}(x)\) is the symbol that instance \(x\) belongs to, and
+\(\mathrm{rel\text{-}image}(X)\) is the set of symbols joined to \(X\) by
+a \(\mathrm{rel}\) edge. The lifting matters: because evidence matches per
+symbol (§2), roles must too, or a refined set could drop a co-instance
+the worklist would have kept.
 
-**Waves.** Substatement \(s\) re-probes \(P(s) \wedge \rho(N)\). When
+**Waves.** Command \(c\) re-probes the intersection
+\(D(c) \cap \rho_{\mathrm{rel}}(\mathrm{res}(n))\) — its own denotation,
+narrowed to what the neighbour can reach. When
 \(\mathrm{rel} = \mathrm{REFS} \cup \mathrm{HAS}\), a single conjunctive
 role would be unsound (the union semantics), so the neighbour contributes
-one probe per relationship **branch**; \(s\) resolves iff every branch
+one probe per relationship **branch**; \(c\) resolves iff every branch
 combination resolves, and its set is the union of the combination results —
 exact under the union semantics. Waves iterate to a fixpoint: a
-substatement resolved in wave \(k\) can serve as the binding for its other
-neighbours in wave \(k+1\), so constraint flows across the tree.
+substatement resolved in wave \(i\) can serve as the binding for its other
+neighbours in wave \(i+1\), so constraint flows across the tree.
 
 **Binding choice.** Each candidate binds only its **smallest** resolved
 neighbour, re-probing only when a strictly smaller binding appears: a
@@ -139,28 +145,29 @@ sound — superset; the worklist narrows the rest.
 ## 6. Properties {#properties}
 
 **Theorem 1 (probe exactness).** A wave-0 resolution equals
-\(\mathrm{ids}(D(s))\); a refinement resolution equals
-\(\mathrm{ids}(D(s) \wedge \rho(N))\). In both cases the
-`LIMIT` never truncated the returned set (it fired only in the discarded
-Capped case), so resolutions are deterministic and complete for their
-predicate.
+\(\mathrm{ids}(D(c))\); a refinement resolution equals
+\(\mathrm{ids}\bigl(D(c) \cap \rho_{\mathrm{rel}}(\mathrm{res}(n))\bigr)\).
+In both cases the cap never truncated the returned set (it fired only in
+the discarded Capped case), so resolutions are deterministic and complete
+for their predicate.
 
-**Theorem 2 (soundness).** Every resolved set is a superset of the final
-selection: \(o(s) \subseteq \mathrm{resolved}(s)\).
+**Theorem 2 (soundness).** Every resolved set is a superset of the
+selection: \(N_c \subseteq \mathrm{res}(c)\).
 
-*Proof sketch.* Wave 0: \(o(s) \subseteq D(s)\) by definition. Refinement:
-let \(x \in o(s)\). Then \(x \in D(s)\), and by the composition equation
-there is \(y \in o(n)\) with \((x, y) \in E_{\mathrm{rel}}\). By
-monotonicity \(o(n) \subseteq \mathrm{resolved}(n) = N\), and the role is
+*Proof sketch.* Wave 0: \(N_c \subseteq D(c)\) by definition. Refinement:
+let \(x \in N_c\). Then \(x \in D(c)\), and by the composition equation of
+§2 there is \(y \in N_n\) with \((x, y) \in E_{\mathrm{rel}}\). By
+monotonicity \(N_n \subseteq \mathrm{res}(n)\), and the role is
 at least as permissive as evidence
 (\(E_{\mathrm{rel}} \subseteq \rho_{\mathrm{rel}}\) — both are
 symbol-level, and \(\rho\) carries no direct-only or budget conditions), so
-\(x \in \rho(N)\), hence \(x \in D(s) \wedge \rho(N)\). For union
+\(x \in \rho_{\mathrm{rel}}(\mathrm{res}(n))\), hence
+\(x \in D(c) \cap \rho_{\mathrm{rel}}(\mathrm{res}(n))\). For union
 relationships, \(x\) satisfies at least one branch in every combination, so
 it survives the union of combination results. ∎
 
 Soundness is exactly the contract both consumers (§7) require: a resolved
-set is *exact in composition* — it may exceed *o(s)*, never undershoot it.
+set is *exact in composition* — it may exceed \(N_c\), never undershoot it.
 
 **Theorem 3 (termination).** Each wave either resolves at least one
 substatement or is empty; candidates re-probe only on strictly
@@ -222,7 +229,7 @@ The §1 query, byte-identical output at every stage:
 
 ## 10. Configuration and observability {#configuration-and-observability}
 
-- `--probe-cap` / `ASKL_PROBE_CAP` (default 1000): the resolution
+- `--probe-cap` / `ASKL_PROBE_CAP` (default 1000): the cap \(k\) of §4, and so the resolution
   threshold. `0` disables resolution — every probe caps and reads stay
   predicate-driven.
 - Every probe records a `ProbeActivation` (substatement text, resolved

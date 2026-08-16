@@ -38,11 +38,16 @@ than sequence — which is exactly what the next step is about.
 
 ## 3. What one command selects {#selection}
 
-Write \(D(c)\) for the rows matching command \(c\)'s own filters —
-its **denotation**, computable from the command alone. Selection is
+Write \(D(c)\) for what command \(c\) denotes on its own — the rows its
+own predicate \(P(c)\) matches, filters and selector branches together,
+computable from the command alone
+([semantics §6](/docs/design/semantics/#denotation)). Selection is
 narrower than that: a row survives only if it also has evidence with
-what \(c\)'s neighbours selected. For every constraining neighbour
-\(n\) of \(c\) (its parent, and each of its children):
+what \(c\)'s neighbours selected, where \(E_{\mathrm{rel}}\) is the
+**evidence relation** — a reference or containment edge, matched per
+symbol ([semantics §7](/docs/design/semantics/#selections)). For every
+constraining neighbour \(n\) of \(c\) (its parent, and each of its
+children):
 
 $$N_c \;=\; \{\, x \in D(c) \;:\; \forall n.\ \exists\, y \in N_n.\ (x, y) \in E_{\mathrm{rel}} \,\}$$
 
@@ -67,14 +72,15 @@ So selections are not cached. Something upstream of them is.
 ## 5. Cache an upper bound instead {#upper-bound}
 
 Before the fixpoint runs, each command *reads*: it asks the database
-for a superset of its selection, using a predicate \(P(c)\) built from
-its own filters plus whatever its neighbours can contribute as
-conditions rather than as results.
+for a superset of its selection, evaluating its own predicate \(P(c)\)
+together with whatever its neighbours can contribute as conditions
+rather than as results. Write \(\mathrm{nb}(c)\) for those neighbour
+conditions:
 
-$$N_c \;\subseteq\; \llbracket P(c) \rrbracket \;\subseteq\; D(c)$$
+$$N_c \;\subseteq\; \llbracket\, P(c) \wedge \mathrm{nb}(c) \,\rrbracket \;\subseteq\; D(c)$$
 
-This is the object worth caching, for a reason the fixpoint lacks:
-\(P(c)\) mentions only \(c\) and its immediate neighbourhood. Edit one
+This is the object worth caching, for a reason the fixpoint lacks: the
+read's predicate mentions only \(c\) and its immediate neighbourhood. Edit one
 statement of a long query and every other command's read is
 *byte-identical* — same SQL, same binds — so it hits the in-RAM result
 cache untouched. Two consequences follow. Interactive editing gets
@@ -99,10 +105,16 @@ sharing — even where they do identical work.
 
 ## 7. What a materialisation contains {#materialisation}
 
-So look at what the materialising step itself produces. For command
-\(c\) of statement \(t\), with \(\Lambda_{t-1}\) the slice visible
-before the statement and \(O_c\) the earlier statements' selections it
-references by label:
+So look at what the materialising step itself produces. Four symbols,
+each owned elsewhere: \(U_c\) is the command's combined populate
+([semantics §4](/docs/design/semantics/#content-verbs-union)); \(C(\ell)\)
+is the content stored on layer \(\ell\), and \(\Lambda_{t-1}\) the slice
+visible before statement \(t\)
+([shards §1](/docs/design/shards/#notation)); and \(g_c\) builds rows
+from each output in \(O_c\), the earlier statements' selections the
+command references by label
+([shards §3](/docs/design/shards/#node-kinds)). Command \(c\)'s
+contribution to the materialisation is then
 
 $$M_c \;=\; U_c\Bigl(\bigcup_{\ell \,\in\, \Lambda_{t-1}} C(\ell)\Bigr) \;\cup \bigcup_{o \,\in\, O_c} g_c(o)$$
 
