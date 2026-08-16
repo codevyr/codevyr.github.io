@@ -81,7 +81,7 @@ named by the node keys of §3 — and nothing else.
 \(U_c\) maps an input slice — some layers' content rows — to every
 row its content verbs write for it; the **content map**
 \(f_c = \sigma_{F_c} \circ U_c\) conjoins the combined filter \(F_c\)
-([Command Algebra §5](/docs/design/command-algebra/#content-map)).
+([Queries and their Meaning §5](/docs/design/semantics/#content-map)).
 The engine stores the \(U_c\)-image and reads observe \(f_c\); since
 \(C(\cdot)\) means stored rows the algebra below runs over \(U_c\),
 and \(f_c\) reappears where reads do (§3).
@@ -93,7 +93,7 @@ Everything §3 builds rests on one property of the combined populate
 property.
 
 How individual verbs' populates union into \(U_c\) belongs to
-[The Command Algebra](/docs/design/command-algebra). The
+[Queries and their Meaning](/docs/design/semantics). The
 tree never decomposes below one command's node group, so here \(U_c\)
 is one opaque function: aimed at the content rows of some set of
 layers, it returns the content the command writes for just those rows.
@@ -475,7 +475,7 @@ per output.
 
 ## Where to read more
 
-- [The Command Algebra](/docs/design/command-algebra)
+- [Queries and their Meaning](/docs/design/semantics)
 - [Layers and layer operations](/docs/design/layers)
 - [Caching](/docs/design/caching)
 - [search()](/docs/design/search)

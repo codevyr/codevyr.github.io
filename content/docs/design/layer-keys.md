@@ -21,7 +21,7 @@ Start with a single command. Besides its content verbs it
 carries **filters** — the units of filter composition: a name pattern, a
 type constraint, `project("linux")`, `ignore(...)`. (A *verb* is the
 generic execution unit — see
-[The Command Algebra](/docs/design/command-algebra); most filters
+[Queries and their Meaning](/docs/design/semantics); most filters
 arrive as verbs, but not all — a bare name string is a filter without
 being a verb.) For keying and
 evaluation the filters are combined into **one predicate** \(F\) — the
@@ -40,7 +40,7 @@ Two details, each worth its own sentence:
   alike — physically at read time, where every read of the command's layers
   conjoins the same \(F\) over their rows; a populate consults at most
   \(F\)'s object-narrowing part to restrict what it scans
-  ([command-algebra §5](/docs/design/command-algebra/#content-map)).
+  ([semantics §5](/docs/design/semantics/#content-map)).
 
 ## 2. The filter hash {#filter-hash}
 

@@ -20,7 +20,7 @@ than sequence.
 **Parsing** turns the text into a forest of substatements. Each one
 carries a **command** — its bag of verbs, folded in source order into a
 single filter predicate and a single combined populate
-([The Command Algebra](/docs/design/command-algebra)). Two structural
+([Queries and their Meaning](/docs/design/semantics)). Two structural
 rules are checked before anything runs: every component must contain an
 anchor, so that a query cannot ask for "everything" by accident, and a
 `@label` may only reference an earlier statement.
@@ -79,7 +79,7 @@ The design pages use these terms with fixed meanings:
   corresponds to *substatement*.
 - **command** — the verb bag of one substatement, assembled by folding
   its verbs in source order; a later verb may override an earlier
-  same-tagged one ([The Command Algebra](/docs/design/command-algebra)).
+  same-tagged one ([Queries and their Meaning](/docs/design/semantics)).
   Filters, predicates, and cache hashes are per-command.
 - **verb** — the generic execution unit inside a command: `search(...)`,
   `project(...)`, `func(...)`. What a verb contributes varies — a
@@ -135,15 +135,15 @@ The design pages use these terms with fixed meanings:
 
 - **[From Result to Cache](/docs/design/derivation)** — why the engine
   has the parts it has, derived from what a query returns.
+- **[Queries and their Meaning](/docs/design/semantics)** — how verbs
+  fold into one predicate and one populate, and why a query's answer is
+  a fixpoint of mutually constraining selections.
 - **[Execution Engine](/docs/design/execution-engine)** — the phases a
   statement runs, and the monotone worklist that composes
   neighbouring substatements to a fixpoint.
 - **[Cost-Based Execution](/docs/design/cost-based-execution)** —
   planning from measured cardinality: anchors, capped id probes, and
   the refinement waves that let one selective leaf drive a query.
-- **[The Command Algebra](/docs/design/command-algebra)** — how verbs
-  fold into a command, filters compose into one predicate, and content
-  verbs union into one populate.
 
 **Storing and reusing results**
 
