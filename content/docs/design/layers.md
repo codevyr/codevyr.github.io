@@ -19,7 +19,7 @@ how a statement's layers are carved into independently cached shards, see
 themselves — content-addressed hashing, the two-phase guard, and lifetime — see
 [Caching](/docs/design/caching).
 
-## 1. Why ephemeral layers exist
+## 1. Why ephemeral layers exist {#why-ephemeral-layers}
 
 An ephemeral layer lets a query **modify the index** for the span of a single
 command — overlaying new rows on top of the persistent index without mutating it.
@@ -44,7 +44,7 @@ and it lives in SQL. The price of the approach — intermediate results are
 materialised as rows, and therefore have to be cached — is what the rest of this
 document and [Caching](/docs/design/caching) are about.
 
-## 2. What a layer is
+## 2. What a layer is {#what-a-layer-is}
 
 A layer is a row in `index.layers` plus every graph row tagged with its id. The
 tag is a plain `layer BIGINT` column carried by the data tables:
@@ -77,7 +77,7 @@ Because every row carries its layer, "which rows does this query see?" reduces t
 `layer = ANY($visible)` clause. Queries never reason about the *shape* of the
 layer graph — only about a flat set of visible ids.
 
-## 3. Kinds and lifetimes
+## 3. Kinds and lifetimes {#kinds-and-lifetimes}
 
 A layer has a **kind** (its structural role: `root`, `canary`, or
 `ephemeral`) and, orthogonally, a **lifetime** — persistent (committed
@@ -101,7 +101,7 @@ visible. Nothing else about a row depends on which kind of layer it sits on.
 its **persistent closure**: the **root layer** \(R_p\) — the project's
 *initial* persistent layer, carrying a stored **identity hash** \(h(R_p)\)
 that names the committed state it stands for
-([Partitioning a Materialisation §4](/docs/design/shards/#4-why-a-key-can-be-trusted)
+([Partitioning a Materialisation §4](/docs/design/shards/#key-trust)
 makes that naming precise) — plus, in general, any further persistent
 **delta layers** committed by incremental index updates. In today's
 deployment the closure is just the root: delta layers are not yet
@@ -119,7 +119,7 @@ covers deltas.
 > should see *nothing* really sees nothing. It is a protected kind that garbage
 > collection never touches.
 
-## 4. Visibility: roots and materialisations
+## 4. Visibility: roots and materialisations {#visibility}
 
 The full structure the layers form is a **shared, content-addressed tree per
 root** — root shards hang off the root, layer shards off the single layer they
@@ -143,14 +143,14 @@ Two accessors turn this forest into the flat sets queries actually bind:
   checks. Queries see the flat set, never the structure.
 - **`root_ids()`** = just the roots — the persistent slice of visibility
   (today the *whole* persistent slice: one persistent layer per project;
-  see the [persistent closure](#3-kinds-and-lifetimes) above for the intended
+  see the [persistent closure](#kinds-and-lifetimes) above for the intended
   multi-layer form).
 
 A context always starts *rooted* in an explicit set of root layers (an empty set
 is legal and means "no persistent data visible" — used by unit tests and the
 canary). The visible set only ever grows, and only through one path.
 
-## 5. Materialisations: how a query accretes layers
+## 5. Materialisations: how a query accretes layers {#materialisations}
 
 Askl evaluates a query one top-level **statement** at a time, in source
 order. A statement whose verbs
@@ -188,12 +188,12 @@ materialisation's layers are all in `visible_ids()` when the next statement's qu
 > to materialise; the executor decides which root each layer hangs off and in
 > what order. This removes a whole class of parent-disagreement bugs.
 
-## 6. Layer operations
+## 6. Layer operations {#layer-operations}
 
 Three verbs create ephemeral layers. Two are **content verbs** and one is a
 **manual constructor**.
 
-### 6.1. `search()` and `loc()` — content verbs
+### 6.1. `search()` and `loc()` — content verbs {#content-verbs}
 
 `search("literal")` and `loc(path, line)` read the persistent corpus
 (`content_store ⋈ objects`) and materialise their results as ephemeral graph
@@ -215,7 +215,7 @@ executor splits that populate into shards is
 [Partitioning a Materialisation](/docs/design/shards); how the shards are stored,
 keyed, and invalidated is [Caching](/docs/design/caching).
 
-### 6.2. `layer { … }` — the manual constructor
+### 6.2. `layer { … }` — the manual constructor {#manual-constructor}
 
 A `layer { … }` block builds ephemeral graph rows directly from **ephemeral
 operations**, without a populate:
@@ -237,7 +237,7 @@ conceptually, and the seam through which synthetic or externally-supplied graph
 rows can be injected into a query. It is an advanced operation; most queries
 never write one directly.
 
-## 7. Isolation: no query sees another's rows
+## 7. Isolation: no query sees another's rows {#isolation}
 
 Ephemeral layers from unrelated queries coexist in the same tables. The
 guarantee that they stay apart is a single invariant: **every row a query
@@ -258,7 +258,7 @@ nothing inside it escapes the visible set. Combined with the
 guarantee: the SQL only *fetches* visible rows, and the check *proves* it after
 the fact.
 
-## 8. Lifetime and garbage collection
+## 8. Lifetime and garbage collection {#lifetime-and-gc}
 
 Persistent layers are permanent — deleting a root would cascade an entire
 project's index away — so they are protected kinds, excluded from every
@@ -276,14 +276,14 @@ objects, symbols, instances, or refs behind. The full lifetime story —
 content-addressing, the two-phase `populated` guard, LRU, and TTL — is in
 [Caching](/docs/design/caching).
 
-## 9. Composition is union; masking is future
+## 9. Composition is union; masking is future {#composition-is-union}
 
 Today layers only ever **add** rows. A query's result is the union of what each
 visible layer contributes, and union is associative and commutative — the order
 of the chain doesn't change *what* you see, only *when* a layer became visible.
 That is the premise the whole cache rests on: it is what lets a command's
 contribution be carved per layer and each part cached independently
-([Partitioning a Materialisation](/docs/design/shards/#2-verb-semantics-and-the-decomposition-axiom)).
+([Partitioning a Materialisation](/docs/design/shards/#decomposition-axiom)).
 The carve is therefore exact only for **masking-free composition** — which is
 what the next paragraph reserves.
 

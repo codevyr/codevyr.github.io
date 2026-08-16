@@ -4,6 +4,9 @@ title = 'Codevyr - Source code analysis and visualization'
 relativeURLs = true
 canonifyURLs = true
 
+[markup.goldmark.parser.attribute]
+    block = true
+
 [markup.goldmark.extensions.passthrough]
     enable = true
 [markup.goldmark.extensions.passthrough.delimiters]

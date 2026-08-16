@@ -19,7 +19,7 @@ materialisation; \(C(\ell)\) is the content rows of layer \(\ell\) and
 \(F_c\) its filter predicate, \(U_c\) its combined populate, \(f_c\)
 its content map.
 
-## 1. What a verb denotes
+## 1. What a verb denotes {#what-a-verb-denotes}
 
 Each verb denotes a functional contribution. A content verb
 **populates**: `search("foo")` denotes a **populate** \(u\) — a
@@ -34,7 +34,7 @@ populate from a filter, which only keeps or drops rows that already
 exist. An added-outright populate is a constant function of \(A\), and
 constants are union-additive (\(X = X \cup X\)), so such populates
 satisfy the
-[layer-decomposability axiom](/docs/design/shards/#2-verb-semantics-and-the-decomposition-axiom)
+[layer-decomposability axiom](/docs/design/shards/#decomposition-axiom)
 trivially. The names track the code: the engine fills a layer's rows
 by running the verb's populate closures, and `search`'s populate is
 implemented as a `ShardedScan`. `project("linux")` denotes a
@@ -45,7 +45,7 @@ its content verbs (§4), and evaluation happens at the composed level —
 what a command contributes to its statement's materialisation is the content map
 \(f_c(A)\) (§5).
 
-## 2. Assembling the command
+## 2. Assembling the command {#assembling-the-command}
 
 A command is its verbs folded in source order. Write
 \(\langle v \rangle\) for the one-verb command and \(\triangleright\)
@@ -63,7 +63,7 @@ function override; Docker-style overlays): **associative**, so the fold
 needs no parentheses, but **not commutative**, since override gives the
 later verb precedence. Source order is semantics — which is why
 \(H(c)\) also hashes per-verb inputs in source order
-([layer-keys §4](/docs/design/layer-keys/#4-combining-verbs-the-command-hash)).
+([layer-keys §4](/docs/design/layer-keys/#command-hash)).
 Making the override/accumulate choice explicit in the syntax rather
 than hardcoded per verb is future work.
 
@@ -74,7 +74,7 @@ only filters; the aspects a verb lacks are no-ops in the fold. The rest
 of this page combines the surviving contributions, one aspect at a
 time.
 
-## 3. Filters compose
+## 3. Filters compose {#filters-compose}
 
 Each filter \(g\) of the assembled command induces a **selection**
 \(\sigma_g\): the function keeping exactly the rows that satisfy
@@ -89,25 +89,25 @@ predicate \(F_c = \bigwedge_j g_j\) (the \(F\) of
 composition chain. Nothing here is conjunction-specific: \(\sigma\) is
 defined for any Boolean predicate tree — \(F\) itself carries And/Or/Not
 nodes, and the emission predicate of
-[Cost-Based Execution §2](/docs/design/cost-based-execution/#2-model)
+[Cost-Based Execution §2](/docs/design/cost-based-execution/#model)
 adds an OR of selector branches — and any such tree normalises to a
 disjunction of conjunctions. Conjunction is merely the law by which
 *separate* filters combine.
 
 \(F_c\) and \(\sigma_{F_c}\) carry the same information in different
 categories, and both are needed: the predicate is the *syntactic* object
-the cache keys hash ([layer-keys §2](/docs/design/layer-keys/#2-the-filter-hash)),
+the cache keys hash ([layer-keys §2](/docs/design/layer-keys/#filter-hash)),
 the selection is the *function* evaluation applies — and \(\sigma\) is
 many-to-one, since equivalent but structurally different trees induce
 the same selection while hashing apart (harmless: at worst a redundant
 materialisation).
 
-## 4. Content verbs union
+## 4. Content verbs union {#content-verbs-union}
 
 Content verbs, by contrast, do *not* compose sequentially: no content
 verb reads another's output — their mutual independence is a keying
 requirement
-([layer-keys §4](/docs/design/layer-keys/#4-combining-verbs-the-command-hash))
+([layer-keys §4](/docs/design/layer-keys/#command-hash))
 — so several populates combine by pointwise **union**,
 \((u \cup u')(A) = u(A) \cup u'(A)\). Write \(U_c\) for the command's
 **combined populate**, with \(u_1, \dots, u_n\) the populates its
@@ -120,7 +120,7 @@ Applied to a slice \(A\), \(U_c(A)\) is every row any of the command's
 populates writes for \(A\) — for `search("foo") search("bar")`, all
 matches of `foo` in \(A\)'s text plus all matches of `bar`, unfiltered.
 
-## 5. The content map
+## 5. The content map {#content-map}
 
 A statement's materialisation
 ([terminology](/docs/design/overview/#terminology)) is assembled as the union
@@ -154,10 +154,10 @@ rows are the unfiltered union.
 
 There is no circularity here: \(F_c\) is **not** a function of the
 populates — filters and populates are disjoint slots of \(c\)
-([acyclicity](/docs/design/layer-keys/#6-acyclicity)). A dual-aspect
+([acyclicity](/docs/design/layer-keys/#acyclicity)). A dual-aspect
 verb like `search` contributes its populate to the union, while its match
 predicate joins the emission predicate
-([Cost-Based Execution §2](/docs/design/cost-based-execution/#2-model)),
+([Cost-Based Execution §2](/docs/design/cost-based-execution/#model)),
 not \(F_c\). Lowercase \(f_c\) is a function on rows; uppercase
 \(F_c\) the predicate it applies; the composition order reads
 populate-then-filter.
@@ -166,7 +166,7 @@ Because a selection acts row by row and a union of additive maps is
 additive, \(f_c\) is additive — splittable across disjoint inputs —
 exactly when each populate \(u_i\) is. What that additivity buys,
 and why it is the whole caching story, is the
-[layer-decomposability axiom](/docs/design/shards/#2-verb-semantics-and-the-decomposition-axiom).
+[layer-decomposability axiom](/docs/design/shards/#decomposition-axiom).
 
 ## Where to read more
 

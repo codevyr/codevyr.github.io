@@ -234,7 +234,7 @@ root-shard hash folds, in order:
 - the **fused container scope**: `scope:none` when unscoped, else the
   scope's condition hash and/or its sorted resolved instance ids — a
   scope-fused scan reads the container's ranges, so the key must name them
-  (see [Layer Keys §5](/docs/design/layer-keys/#5-scope-fusion))
+  (see [Layer Keys §5](/docs/design/layer-keys/#scope-fusion))
 - `CompositeFilter::hash_into(&mut Sha256)` — the full recursive hash of the
   surrounding command's filter set
 

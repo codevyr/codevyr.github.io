@@ -25,7 +25,7 @@ trusted; a worked example and the operating rules follow. For where
 materialisation sits in the pipeline, see
 [the life of a query](/docs/design/overview/#the-life-of-a-query).
 
-## 1. Notation
+## 1. Notation {#notation}
 
 The layer data model — kinds, lifetimes, visibility, isolation,
 garbage collection — belongs to
@@ -48,7 +48,7 @@ a stored **identity hash** \(h(R_p)\) that names the committed index
 state it stands for (§4 makes that naming precise); a query runs against
 a set of visible roots \(\mathcal{R}\) together with each root's
 persistent closure — today just the root itself
-([Layers](/docs/design/layers/#3-kinds-and-lifetimes)). Write
+([Layers](/docs/design/layers/#kinds-and-lifetimes)). Write
 \(\Lambda_t(R)\) for the ordered **slice** visible on \(R\)'s project
 after statement \(t\): that closure, followed by the materialisations of
 statements \(1 \dots t\) in order. A query's visibility is the union of
@@ -81,12 +81,12 @@ named by the node keys of §3 — and nothing else.
 \(U_c\) maps an input slice — some layers' content rows — to every
 row its content verbs write for it; the **content map**
 \(f_c = \sigma_{F_c} \circ U_c\) conjoins the combined filter \(F_c\)
-([Command Algebra §5](/docs/design/command-algebra/#5-the-content-map)).
+([Command Algebra §5](/docs/design/command-algebra/#content-map)).
 The engine stores the \(U_c\)-image and reads observe \(f_c\); since
 \(C(\cdot)\) means stored rows the algebra below runs over \(U_c\),
 and \(f_c\) reappears where reads do (§3).
 
-## 2. Verb semantics and the decomposition axiom
+## 2. Verb semantics and the decomposition axiom {#decomposition-axiom}
 
 Everything §3 builds rests on one property of the combined populate
 \(U_c\): its work can be split along layers. This section states that
@@ -126,14 +126,14 @@ that row-at-a-time character and is by construction no part of
 built from earlier statements' selections, out of the populates, and
 §3 gives them their own node: the selection shard.
 
-## 3. Partitioning: the three node kinds
+## 3. Partitioning: the three node kinds {#node-kinds}
 
 The cache in question is the **database-backed** one: a node
 is a row in `index.layers` together with its content rows, named by a
 hash of the command's inputs and shared across processes and queries.
 Read results have a separate in-RAM cache, keyed on the exact SQL and
 binds, which this page does not model
-([Caching](/docs/design/caching/#2-two-request-time-tiers)).
+([Caching](/docs/design/caching/#two-tiers)).
 
 **The problem.** A command \(c\) of statement \(t\) has to materialise
 the rows its combined populate produces over everything visible:
@@ -333,7 +333,7 @@ exists, so its populate never runs. Parent every layer on the previous
 one instead — the naive topology — and this evaporates: each context
 grows its own copy of the same populate.
 
-## 4. Why a key can be trusted
+## 4. Why a key can be trusted {#key-trust}
 
 Everything above rests on one property: **equal keys, equal content**
 — \(\kappa(\ell) = \kappa(\ell') \Rightarrow C(\ell) = C(\ell')\).
@@ -351,7 +351,7 @@ rather than by this algebra:
 - **(A1) Two-phase population.** A node is observable only fully
   written or not at all, and is never rewritten afterwards — the
   upsert-plus-`populated`-flag transaction of
-  [Caching](/docs/design/caching/#41-the-two-phase-populated-guard). So a
+  [Caching](/docs/design/caching/#populated-guard). So a
   layer's content is written once, and an id that names the layer
   names its rows.
 - **(A2) Id non-reuse.** An id names at most one row over the
@@ -370,11 +370,11 @@ parent's — \(h(R)\) pins \(C(R)\) by (A3), \(\mathrm{id}(\ell)\) pins
 fixed by \(H(c)\) and \(\mathrm{extra}\) alone, so its key determines
 more than it needs to. Eviction preserves the arrangement rather than
 breaking it: the delete-cascade
-([Caching](/docs/design/caching/#7-lifetime-and-invalidation)) removes a
+([Caching](/docs/design/caching/#lifetime-and-invalidation)) removes a
 layer together with everything transitively dependent on it, so a live
 node's ancestry is always present and, by (A1), unchanged.
 
-## 5. Worked example
+## 5. Worked example {#worked-example}
 
 One project, root **R**; three layer-creating statements
 \(t = 1, 2, 3\), each a single layer-bearing command — \(c\) implicit,
@@ -437,7 +437,7 @@ context-free. And by §3's reuse argument, running `search("bar")` alone
 tomorrow, or under a different upstream context, hits the same Sh3(R)
 node; only the context-specific remainder differs.
 
-## 6. Practical consequences
+## 6. Practical consequences {#practical-consequences}
 
 The formalism condenses into four operating rules:
 
@@ -452,7 +452,7 @@ The formalism condenses into four operating rules:
 - **Invalidation is (A3) enforced** — persistent-index mutations purge
   the ephemeral cache in the same transaction; nothing else does.
 
-## 7. Prior art
+## 7. Prior art {#prior-art}
 
 Naming a unit of work by a hash of its inputs, so that the name alone
 decides reuse, is well-trodden ground: **OCI/Docker** image layers,

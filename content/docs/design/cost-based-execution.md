@@ -12,7 +12,7 @@ scheme rests on: probe *exactness*, refinement *soundness* against the
 composition semantics, and *termination*. Implementation notes and measured
 results follow.
 
-## 1. Motivation
+## 1. Motivation {#motivation}
 
 The engine previously carried a selector/filter split that was a
 hand-written query plan: selectors initiated SQL, filters contributed WHERE
@@ -31,7 +31,7 @@ condition into millions of ids, one SQL statement returned 2.67 M rows
 returns the identical result from kilobyte-sized, index-driven SQL
 statements.
 
-## 2. Model
+## 2. Model {#model}
 
 **Substatements and denotations.** A query is a forest of substatements.
 Each substatement \(s\) carries one **predicate** \(P(s)\) — the conjunction
@@ -59,7 +59,7 @@ propagation in which neighbouring substatements constrain each other through
 $$o(s) \;=\; \{\, x \in D(s) \;:\; \exists\, y \in o(n).\; (x,y) \in E_{\mathrm{rel}} \,\}$$
 
 (for constraining neighbours; weak neighbours impose no such condition —
-see [Weakness and Bindness](/docs/design/execution-engine/#8-weakness-and-bindness)).
+see [Weakness and Bindness](/docs/design/execution-engine/#weakness-and-bindness)).
 Here \(E_{\mathrm{rel}}\) is the evidence relation: a REFS edge or a
 containment edge, matched **per symbol** — if any instance of a symbol is
 evidenced, all of that symbol's instances survive.
@@ -72,7 +72,7 @@ The planning problem: decide, per substatement, whether to materialise
 \(D(s)\) independently, derive it from neighbours, and in what order —
 using the index itself as the cardinality oracle.
 
-## 3. Static eligibility: anchors
+## 3. Static eligibility: anchors {#anchors}
 
 Materialising \(D(s)\) is only *meaningful* for some substatements. A
 substatement is **anchored** iff its predicate contains at least one
@@ -91,7 +91,7 @@ pure constraints denotes nothing materialisable and used to fail silently.
 Anchoring answers *may this substatement drive?* Cost, measured next,
 answers *should it, and when?*
 
-## 4. Probes
+## 4. Probes {#probes}
 
 **Definition.** For a predicate \(P\) and cap \(c\), a **probe** evaluates
 \(P\) projected to instance ids with `LIMIT c+1`:
@@ -109,7 +109,7 @@ id rows regardless of how wide the predicate's rows are.
 Below-cap substatements become **resolved**, holding
 \(\mathrm{ids}(D(s))\); the rest are **capped**.
 
-## 5. Refinement
+## 5. Refinement {#refinement}
 
 **Roles.** For a resolved neighbour \(n\) of a capped (or derive-only)
 substatement \(s\), a **role** is the semi-join image of \(n\)'s resolved
@@ -136,7 +136,7 @@ role's evaluation cost scales with the bound set, and a broad neighbour can
 cost more to conjoin than it narrows. The refined result is a larger — still
 sound — superset; the worklist narrows the rest.
 
-## 6. Properties
+## 6. Properties {#properties}
 
 **Theorem 1 (probe exactness).** A wave-0 resolution equals
 \(\mathrm{ids}(D(s))\); a refinement resolution equals
@@ -167,7 +167,7 @@ substatement or is empty; candidates re-probe only on strictly
 smaller bindings; hence the loop takes at most
 \(\lvert\text{substatements}\rvert\) waves.
 
-## 7. Consumers of resolved sets
+## 7. Consumers of resolved sets {#consumers}
 
 - **Emission.** A resolved substatement's read conjoins the id list with
   its predicate: the current-instance query becomes a primary-key fetch, while
@@ -185,7 +185,7 @@ smaller bindings; hence the loop takes at most
 The worklist downstream is unchanged; probes only ever hand it smaller,
 exact inputs.
 
-## 8. Implementation notes
+## 8. Implementation notes {#implementation-notes}
 
 The probe SQL was validated with `EXPLAIN ANALYZE` against a production
 index (5.9 M symbols, 23.3 M references) before the engine work, and three
@@ -209,7 +209,7 @@ which varies with concurrent completion order, and the cache keys on
 rendered binds — non-canonical binds turned identical queries into
 guaranteed misses.
 
-## 9. Evaluation
+## 9. Evaluation {#evaluation}
 
 The §1 query, byte-identical output at every stage:
 
@@ -220,7 +220,7 @@ The §1 query, byte-identical output at every stage:
 | smallest-neighbour binding + scoped containment families | 1.2 s |
 | canonical cache binds + parents probe route | ≈0.3 s |
 
-## 10. Configuration and observability
+## 10. Configuration and observability {#configuration-and-observability}
 
 - `--probe-cap` / `ASKL_PROBE_CAP` (default 1000): the resolution
   threshold. `0` disables resolution — every probe caps and reads stay
@@ -230,7 +230,7 @@ The §1 query, byte-identical output at every stage:
   and diagnostics use to assert which substatements probed, when, and how
   they classified.
 
-## 11. Prior art
+## 11. Prior art {#prior-art}
 
 The probe-and-refine loop resembles **semi-join reduction** from
 distributed query processing — the SDD-1 line of work, and Bloom-filter

@@ -15,7 +15,7 @@ Name too little and two different results collide on one key (a correctness
 bug). Name too much and identical results get distinct keys (a cache
 fragmented for no reason). Each subsection below adds one ingredient.
 
-## 1. The filter predicate F
+## 1. The filter predicate F {#filter-predicate}
 
 Start with a single command. Besides its content verbs it
 carries **filters** — the units of filter composition: a name pattern, a
@@ -40,9 +40,9 @@ Two details, each worth its own sentence:
   alike — physically at read time, where every read of the command's layers
   conjoins the same \(F\) over their rows; a populate consults at most
   \(F\)'s object-narrowing part to restrict what it scans
-  ([command-algebra §5](/docs/design/command-algebra/#5-the-content-map)).
+  ([command-algebra §5](/docs/design/command-algebra/#content-map)).
 
-## 2. The filter hash
+## 2. The filter hash {#filter-hash}
 
 \(\mathrm{hash}(F)\) is computed recursively over the predicate tree:
 
@@ -56,7 +56,7 @@ Two filters hash equally exactly when they are the same tree
 byte layout). This is the *only* filter-awareness mechanism in the whole
 cache — no filter type is special-cased anywhere.
 
-## 3. Per-verb input hashes
+## 3. Per-verb input hashes {#verb-input-hashes}
 
 Each content verb \(i\) of command \(c\) gets its own hash:
 
@@ -78,7 +78,7 @@ $$H(c,i) \;=\; H\bigl(\, \mathrm{dom}(i) \,\Vert\, \mathrm{inputs}(i) \,\Vert\, 
   `loc`'s path and `project=` arguments already fix what it reads, and
   \(F\) reaches its rows only at read time.
 
-## 4. Combining verbs: the command hash
+## 4. Combining verbs: the command hash {#command-hash}
 
 A command may carry several content verbs (`search("a") search("b")`),
 all contributing to one node group. They are required to be **mutually
@@ -100,7 +100,7 @@ different layers despite denoting the same union — harmless for correctness
 (key soundness only needs same-key \(\Rightarrow\) same-content), at worst
 one redundant materialisation.
 
-## 5. Scope fusion
+## 5. Scope fusion {#scope-fusion}
 
 \(F\) is not the only command context a verb may fold. A verb that
 restricts its populate to the enclosing container — `search` narrowing its
@@ -110,7 +110,7 @@ scope's condition (or its resolved instance ids) joins the verb's inputs.
 A verb that does not fuse (e.g. `loc`, single-file by construction) folds
 nothing extra.
 
-## 6. Acyclicity
+## 6. Acyclicity {#acyclicity}
 
 The definitions may look mutually recursive — \(H(c,i)\) folds
 \(\mathrm{hash}(F)\), and \(F\) is built from the same command.
@@ -145,7 +145,7 @@ Filter leaves at the bottom; the filter hash above them; per-verb hashes
 above that, each also folding its own arguments (and a fused scope when
 present); the command hash at the top.
 
-## 7. Node keys
+## 7. Node keys {#node-keys}
 
 The command hash \(H(c)\) is the "command inputs" ingredient of every node
 key in the [layer forest](/docs/design/shards): the root shard folds

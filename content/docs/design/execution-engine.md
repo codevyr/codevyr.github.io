@@ -10,7 +10,7 @@ propagating constraints between substatements until nothing more changes.
 
 This document explains the algorithm, its data model, and why it terminates correctly.
 
-## 1. Substatements and selections
+## 1. Substatements and selections {#substatements-and-selections}
 
 A query is a forest of *substatements* (see the [terminology](/docs/design/overview/#terminology)), each with:
 
@@ -28,7 +28,7 @@ Substatements are related by their nesting: A is the parent of B. The engine pro
 down (parent tells child which symbols to consider) and up (child constrains the parent to only
 those that have matching children).
 
-## 2. Dependency kinds
+## 2. Dependency kinds {#dependency-kinds}
 
 Each substatement has a list of *dependencies* — other substatements whose selections must exist before
 it can produce useful output. There are two kinds:
@@ -49,7 +49,7 @@ one satisfied sufficient dep enables the first output; the rest narrow it.
 - `forced` — waits for its parent to propagate. It derives its selection directly from the
   parent's result and has nothing to compute on its own.
 
-## 3. Data model
+## 3. Data model {#data-model}
 
 ```
 StatementDependency {
@@ -69,7 +69,7 @@ ExecutionState {
 The `dependents` list is the notification graph: when substatement X's selection changes, every
 entry in `X.dependents` is notified so it can re-evaluate.
 
-## 4. Background: the worklist algorithm
+## 4. Background: the worklist algorithm {#worklist-algorithm}
 
 That model is an instance of a standard technique. A
 [worklist algorithm](https://en.wikipedia.org/wiki/Data-flow_analysis) comes
@@ -87,7 +87,7 @@ The closest analogy in practice is a **constraint propagation network** (as in G
 each substatement is a constraint variable, each scope nesting is a constraint, and the engine propagates
 until all constraints are simultaneously satisfied.
 
-## 5. The pipeline
+## 5. The pipeline {#pipeline}
 
 `compute_nodes` runs: `build_dependency_graph` → the anchor-completeness
 check → `mark_weak_statements` → `compute_roots` (which itself runs three
@@ -100,7 +100,7 @@ graph build, the initial selections, and the worklist; probing is
 formalised on the
 [Cost-Based Execution](/docs/design/cost-based-execution) page.
 
-### 5.1. Initial selections (`compute_roots`)
+### 5.1. Initial selections (`compute_roots`) {#initial-selections}
 
 Phase M materialises any ephemeral layers — **one materialisation per
 layer-creating statement**. A visibility snapshot is taken once, before
@@ -138,7 +138,7 @@ which is what makes `search("a") { search("b") }` compose:
 The worklist below is unchanged by probing — probes only ever hand it
 smaller, exact inputs.
 
-### 5.2. `build_dependency_graph`
+### 5.2. `build_dependency_graph` {#build-dependency-graph}
 
 Wires up the `dependencies` / `dependents` edges based on query structure:
 
@@ -154,7 +154,7 @@ Note that the **parent does not hold a dependency on its children**. The parent 
 *by* its children when they have selections, but the parent's own readiness is independent:
 it can start propagating as soon as it has its own initial selection.
 
-### 5.3. `run_worklist`
+### 5.3. `run_worklist` {#run-worklist}
 
 The main propagation loop:
 
@@ -195,7 +195,7 @@ constraints early, reducing wasted work downstream.
 signal indicating whether the dependent's selection actually changed. Only changed dependents
 are rescheduled, avoiding unnecessary work.
 
-## 6. Convergence
+## 6. Convergence {#convergence}
 
 The algorithm terminates because:
 
@@ -211,7 +211,7 @@ The algorithm terminates because:
    and never enters the worklist. The loop terminates naturally; it does not need to detect
    or special-case unresolvable substatements.
 
-## 7. Example: label resolution
+## 7. Example: label resolution {#label-resolution-example}
 
 ```askl
 label("handlers") func("Handle") {  /* A: functions named Handle, labeled "handlers" */
@@ -238,12 +238,12 @@ Execution trace:
 
 Each iteration removes symbols or adds nothing. The loop exits when the worklist is empty.
 
-## 8. Weakness and bindness
+## 8. Weakness and bindness {#weakness-and-bindness}
 
 Two related but distinct properties govern how substatements participate in a
 query, at two different levels.
 
-### 8.1. Weakness (command-level, compositional)
+### 8.1. Weakness (command-level, compositional) {#weakness}
 
 **Weakness answers: does this command's selection constrain its neighbours?**
 A weak substatement is a display echo — it contributes nodes and edges to the
@@ -277,7 +277,7 @@ survive. Drop the `select` and the outer command becomes a top-level
 candidate, turns weak, weakness flows through the middle, and the same query
 becomes an echo that shows *every* namespace-matching caller.
 
-### 8.2. Bindness (component-level, outcome)
+### 8.2. Bindness (component-level, outcome) {#bindness}
 
 **Bindness answers: does this component demand instances at all?**
 (A *component*: one or more statements connected by label
@@ -289,7 +289,7 @@ binding ones must be *satisfiable*: each needs at least one **anchor**
 (a name, `search(...)`, `loc(...)`, a layer literal, or `select`), otherwise
 the query is rejected with a hint.
 
-### 8.3. `select` bridges the two levels
+### 8.3. `select` bridges the two levels {#select-bridges}
 
 `select` is the user-visible verb for both properties, named for the outcome:
 
@@ -304,7 +304,7 @@ the query is rejected with a hint.
 Weakness otherwise keeps its defaults: anchored commands are constraining
 by construction, and the propagation rule above decides the rest.
 
-## 9. Prior art
+## 9. Prior art {#prior-art}
 
 The fixpoint itself is standard. Iterating a dependency graph until
 nothing changes, propagating only what changed, has the same shape as
