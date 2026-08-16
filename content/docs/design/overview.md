@@ -12,49 +12,68 @@ using the language.
 
 ## The life of a query
 
-A query is a sequence of **statements**, and statements are the only
-time axis the language has: they run in source order, one after
-another, and nesting inside a statement expresses constraint rather
-than sequence.
+**The product.** A query returns a graph: \(\mathrm{askl}(\text{query}) = \{\text{nodes}, \text{edges}\}\) — a
+subgraph of the index, symbols together with the reference and
+containment edges among them. Everything below exists to compute that
+graph, and then to avoid computing it twice.
 
-**Parsing** turns the text into a forest of substatements. Each one
-carries a **command** — its bag of verbs, folded in source order into a
-single filter predicate and a single combined populate
-([The Command Algebra](/docs/design/command-algebra)). Two structural
-rules are checked before anything runs: every component must contain an
-anchor, so that a query cannot ask for "everything" by accident, and a
-`@label` may only reference an earlier statement.
+**A query is an ordered list of statements**, and its graph is the
+union of what each statement selects. Statements are the only time
+axis: they run in source order, and nesting inside one expresses
+constraint, not sequence. Within a statement the unit is the
+**command** — a bag of verbs folded into one filter predicate and one
+combined populate ([The Command Algebra](/docs/design/command-algebra))
+— and the statement's contribution is the union over its commands.
 
-Each statement then runs three phases before the next one starts
-([Execution Engine](/docs/design/execution-engine)):
-
-1. **Materialise.** Commands that produce content — `search`, `loc`,
-   `layer { … }` — write their rows into new layers. Those layers are
-   the statement's *materialisation*, and they are carved into nodes
-   named by a content hash, so an identical populate from any earlier
-   query is a cache hit rather than a rerun. Why the carve looks the
-   way it does is [Partitioning a Materialisation](/docs/design/shards); what goes
-   into the names is [Layer Keys and Hashing](/docs/design/layer-keys).
-2. **Probe.** Before reading anything in full, the engine measures.
-   Capped id probes find which substatements are small enough to
-   enumerate exactly, and refinement waves let one selective leaf drive
-   the rest of the query
-   ([Cost-Based Execution](/docs/design/cost-based-execution)) — this is
-   what keeps a query like `mod("amdgpu") { func { "drm_dev_enter" } }`
-   from resolving millions of rows it will immediately discard.
-3. **Read.** Each command reads its rows under the layers now visible,
-   conjoining its filter predicate.
-
-**Composition** finishes the job. A monotone worklist propagates
-constraints between neighbouring substatements — a parent narrows its
-children, children narrow their parent — until nothing changes. What
-survives that fixpoint is the query's answer
+**What one command selects** is the rows matching its own filters that
+*also* have evidence with its parent's and its children's selections.
+Each side of that condition constrains the other, so the answer is not
+read off in one pass: it is a fixpoint, reached by a worklist that
+narrows every command until nothing changes
 ([Execution Engine](/docs/design/execution-engine)).
 
-Underneath, two caches serve the whole pipeline: a database-backed
-cache of materialised layers, shared across queries and processes, and
-an in-RAM cache of read results within one process
-([Caching](/docs/design/caching)).
+**A fixpoint resists caching.** A command's selection is a joint
+function of everything visible — change any neighbour and it may move
+— so nothing smaller than the whole query names it, and any cache
+entry keyed on less would be a lie.
+
+**So cache an upper bound instead.** Each command *reads* by a
+predicate assembled from its own filters plus the constraints its
+neighbours impose: a superset of the final selection, which the
+worklist then narrows. That predicate changes only when the command or
+its neighbourhood changes, so editing one part of a query leaves the
+other parts' reads byte-identical — and identical reads are hits in
+the in-RAM cache, which keys on the SQL and its binds. Making the
+bound *tight* rather than merely correct is the planner's job:
+capped probes measure cardinality before anything is read in full
+([Cost-Based Execution](/docs/design/cost-based-execution)).
+
+**Reads are evaluated against visible layers**, and visibility grows as
+the query runs: before its reads, each statement **materialises** the
+rows its content verbs produce into new layers, which the following
+statements can see. The visible set is therefore part of every read's
+key. It does not make the cache lie when a layer appears — it makes it
+*fragment*: each distinct visibility gets its own entry, and the work
+behind it is done again.
+
+**What a materialisation contains** is where the second cache lives:
+rows produced from layer content, plus rows built from earlier
+statements' selections. Caching that is a different proposition from
+caching a read — it saves *producing* rows, once, across queries and
+processes, where the in-RAM cache saves *re-reading* rows already
+produced within one process ([Caching](/docs/design/caching)).
+
+**But production cannot be cached whole.** Key it on everything it
+read — the entire visible slice — and one added ephemeral layer
+changes the key, so a full-text scan over a kernel-sized corpus is
+redone on account of a layer that contributed nothing to it.
+
+**Hence the split.** A populate that satisfies a decomposability axiom
+can be carved along the layers it reads, so the expensive and stable
+part — the scan of the committed corpus — is keyed apart from the
+cheap, volatile ones and survives their churn. Which node holds what,
+what its name guarantees, and why that is the whole caching story is
+[Partitioning a Materialisation](/docs/design/shards).
 
 ## Terminology
 
