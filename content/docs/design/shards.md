@@ -7,10 +7,10 @@ aliases:
   - /docs/design/layer-tree-extensions/
 ---
 
-A statement's **materialisation** is the set of rows its layer-creating
-commands write. Those rows have to be stored somewhere, and *how* they
-are stored turns out to be a caching question rather than a bookkeeping
-one.
+A statement's **materialisation** is the set of layers its layer-creating
+commands add to the visible slice. The rows those layers hold have to be
+stored somewhere, and *how* they are stored turns out to be a caching
+question rather than a bookkeeping one.
 
 A materialisation is not one opaque result. It is a set of
 contributions with wildly different costs and lifetimes, and holding it
@@ -82,8 +82,11 @@ which maps an input slice to every row the command's content verbs write
 for it, and the **content map** \(f_c = \sigma_{F_c} \circ U_c\), which
 conjoins the command's combined filter \(F_c\), are
 [Queries and their Meaning](/docs/design/semantics/#content-map)'s: the
-engine stores the \(U_c\)-image and reads observe \(f_c\), so the algebra
-below runs over \(U_c\) and \(f_c\) reappears where reads do (§3).
+engine stores the \(U_c\)-image, and a read of that stored content
+observes \(f_c\), so the algebra below runs over \(U_c\) and \(f_c\)
+reappears where reads do (§3 — where a command that also builds rows
+from earlier selections turns out to be observed as a little more than
+\(f_c\)).
 Hashes are [Keys](/docs/design/layer-keys)': \(\kappa(\ell)\) is the
 cryptographic **node key** that is a layer's cache identity, and
 \(H(c)\) the canonical **input hash** that summarises a command so that
@@ -94,9 +97,9 @@ named by the node keys of §3 — and nothing else.
 
 ## 2. Verb semantics and the decomposition axiom {#decomposition-axiom}
 
-Everything §3 builds rests on one property of the combined populate
-\(U_c\): its work can be split along layers. This section states that
-property.
+Everything §3 builds rests on how the combined populate \(U_c\)
+behaves row by row: its work splits along layers, and it writes nothing
+for rows it does not read. This section states both.
 
 How individual verbs' populates union into \(U_c\) belongs to
 [Queries and their Meaning](/docs/design/semantics). The
@@ -106,26 +109,45 @@ layers, it returns the content the command writes for just those rows.
 And because \(U_c\) is a function, the same work can be aimed at
 different slices — \(U_c(C(R))\) is the populate aimed at the root's
 content, \(U_c(C(\ell))\) the same populate aimed at one layer's
-content. The partitioning below is available exactly when aiming
-\(U_c\) at slices separately loses nothing — when the value of a
-disjoint union is the union of the values:
+content. What makes aiming it at slices separately safe is that it
+decides one row at a time:
 
-> **Axiom (layer-decomposability).** Over any family of layers (their
-> contents are pairwise disjoint),
-> $$U_c\Bigl(\bigcup_{\ell} C(\ell)\Bigr) \;=\; \bigcup_{\ell} U_c\bigl(C(\ell)\bigr)$$
+> **Axiom (element-wise production).** For every corpus slice \(A\),
+> $$U_c(A) \;=\; \bigcup_{x \,\in\, A} U_c(\{x\})$$
+> — what the command writes for a slice is the collection of what it
+> writes for each row of that slice, separately.
 
-A map with this property is an **additive map**: it adds up over
-disjoint pieces the way lengths or counts do. The populates below
-have it for the strongest possible reason — they are *element-wise*,
-\(f(A) = \bigcup_{x \in A} f(\{x\})\), and an element-wise map is
-additive over every disjoint split, layer families included.
+Two properties come out of that, and §3 spends both — the first
+outright, the second with a little more asked of the verbs.
 
-By that same algebra \(U_c\) is a union of its content verbs'
-populates, so the axiom is really an obligation on individual
-populates. Substring search and location resolution meet it: a
+**Layer-decomposability.** Over any family of layers (their contents
+are pairwise disjoint by §1),
+
+$$U_c\Bigl(\bigcup_{\ell} C(\ell)\Bigr) \;=\; \bigcup_{\ell} U_c\bigl(C(\ell)\bigr)$$
+
+since both sides collect the same per-row images, each row lying in
+exactly one layer. A map with this property is an **additive map**: it
+adds up over disjoint pieces the way lengths or counts do. Additivity
+is what lets a populate be aimed at each layer separately and its
+results stored separately, which is the whole of §3's carve.
+
+**No read, no write.** The empty family is an instance of the same
+equation — \(U_c(\emptyset) = \emptyset\), a populate aimed at nothing
+writes nothing — and the populates below satisfy the sharper statement
+it points at: aimed at rows their verbs never read, they write nothing
+either. This is a property of populates rather than a consequence of
+additivity, which is happy to let a map invent rows out of an input it
+ignores; §3 needs it to justify giving no node at all to the layers it
+leaves out.
+
+By the same algebra \(U_c\) is a union of its content verbs'
+populates, so both properties are really obligations on individual
+populates. Substring search and location resolution meet them: a
 byte-range match lies within exactly one **object** (one indexed
 source file, itself a stored row), so each populate is per-row
-behaviour computed one row at a time. A cross-layer operation — one
+behaviour computed one row at a time, and a row it has no use for — a
+derived index row, an object outside its scope — yields nothing at
+all. A cross-layer operation — one
 whose output on a row depends on *other* layers' rows — fails exactly
 that row-at-a-time character and is by construction no part of
 \(U_c\): the command algebra routes such **selection-dependent** rows,
@@ -176,7 +198,10 @@ the defining statement or any later one is a parse error, the
 **ordering rule**
 ([label ordering](/docs/syntax/#ordering-labels-reference-earlier-statements)).
 In the current engine the term is realised by `layer { … }` ops, and
-for a pure content verb \(O_c\) is empty.
+for a pure content verb \(O_c\) is empty. Each \(g_c\) is
+**determinate** in the ids it is handed: the same output, resolved to
+the same rows, yields the same \(g_c(o)\) — which is what later lets a
+key name those rows by their ids and nothing else.
 
 $$M_t \;=\; \bigcup_{c} M_c \qquad\quad M_c \;=\; U_c\Bigl(\,\bigcup_{\ell \,\in\, \Lambda_{t-1}(R)} C(\ell)\Bigr) \;\cup \bigcup_{o \,\in\, O_c} g_c(o)$$
 
@@ -199,12 +224,22 @@ splits the content term per layer.
 
 Write \(E_t(R)\) for the **content-bearing** light layers the
 statement sees: the layers of \(\Lambda_{t-1}(R) \setminus \{R\}\)
-that carry rows content populates read at all — *light* meaning any
-visible layer other than the root, currently the ephemeral ones.
-They are enumerated from the stored rows before any populate runs, so
-the set is deterministic per query text and chain, and uniform across
-the statement's commands; a light layer outside it contributes an
-empty unit, not stored. The carve, with the key each part earns:
+that carry rows of the kinds content populates read at all — *light*
+meaning any visible layer other than the root, currently the ephemeral
+ones. Being content-bearing is a property of a layer's stored rows, not
+of any one command, so the set is the same for every command of the
+statement rather than something the statement has to agree on; and it is
+enumerated from those rows before any populate runs, so it is
+deterministic per query text and chain. A light layer outside it
+contributes \(U_c(C(\ell)) = \emptyset\) by no read, no write, so giving
+it no node loses nothing: the carve is exhaustive, not just disjoint.
+
+One more symbol before the display. \(\mathrm{tip}_{t-1}(R)\) is the
+**tip** of the chain of nodes recording query history — the last layer
+statement \(t-1\) materialised, in command pre-order, with
+\(\mathrm{tip}_0(R) = R\); the paragraphs after the table make it
+precise and show it is deterministic. The carve, with the key each part
+earns:
 
 $$M_c \;=\; \underbrace{U_c(C(R))}_{\mathrm{Sh}_c(R)\;:\;(h(R),\,H(c))} \;\cup \bigcup_{\ell \,\in\, E_t(R)} \underbrace{U_c(C(\ell))}_{\mathrm{Sh}_c(\ell)\;:\;(\mathrm{id}(\ell),\,\kappa_{\mathrm{root}})} \;\cup\; \underbrace{\bigcup_{o \,\in\, O_c} g_c(o)}_{S_c(R)\;:\;(\mathrm{id}(\mathrm{tip}_{t-1}(R)),\,\kappa_{\mathrm{root}},\,\mathrm{extra})}$$
 
@@ -229,7 +264,10 @@ forces predict:
 - A **layer shard** \(\mathrm{Sh}_c(\ell)\) holds the same populate over
   one light layer, keyed by that layer's
   identity: of the context, only \(\ell\) itself. A layer appearing
-  or vanishing invalidates its own shard and no other.
+  or vanishing invalidates its own shard and no other *input* shard —
+  with one exception, since a layer that is also a statement's tip
+  takes the selection shards parented on it down with it (§4's
+  cascade).
 - The **selection shard** \(S_c(R)\) holds the whole
   selection-dependent term,
   \(C(S_c(R)) = \bigcup_{o \in O_c} g_c(o)\) — the outputs share one
@@ -247,6 +285,21 @@ forces predict:
   position and that output's resolved ids; nothing in the keying rule
   forbids it, and each piece would then wait on one label's read rather
   than on all of them.)
+
+The layer shard names one thing more than it reads, and the cost is
+worth stating. Its content \(U_c(C(\ell))\) is a function of \(\ell\)'s
+rows and the command alone, yet its key reaches the command through
+\(\kappa_{\mathrm{root}}\) and so folds \(h(R)\) — the corpus
+incarnation, which that content never touches. The coupling is
+deliberate: it ties every layer shard to the exact root-shard
+incarnation it was cached alongside, so a node group is never assembled
+from parts cached against different states of the corpus. The price is
+fragmentation. Commit anything to the persistent index and every layer
+shard is re-keyed and re-populated, although its rows would have come
+out identical. This is the one place where a key knowingly names more
+than the design rule at the end of this section allows, and what it
+buys is coherence across a node group rather than the correctness of
+any single node.
 
 One rule covers both decisions — the shards kept apart, the outputs
 put together: **split where the parts differ in cost or volatility,
@@ -277,15 +330,15 @@ One consequence of the first row is worth reading off directly. Because
 the root shard folds \(h(R)\), the per-project trees are **salted**
 apart: project A's `search("bar")` root shard and project B's are
 different nodes, each cached independently of which *other* projects
-happen to be visible alongside — and the two non-root kinds inherit that
-scoping through \(\kappa_{\mathrm{root}}\).
+happen to be visible alongside. The other two kinds are per-project for
+a plainer reason — a layer id names one layer, and a layer belongs to
+one project.
 
 For a pure content verb (\(O_c\) empty) the selection shard is empty,
 surviving as a deterministic **spine marker**. The tip advances once
-per statement: \(\mathrm{tip}_t(R)\) is
-the **last layer of materialisation \(t\) in command pre-order** — the
-final layer-bearing command's selection shard — with
-\(\mathrm{tip}_0(R) = R\). One exception: a statement that runs with
+per statement: \(\mathrm{tip}_t(R)\), the last layer of materialisation
+\(t\) in command pre-order, is the final layer-bearing command's
+selection shard. One exception: a statement that runs with
 no ephemeral layers visible (the first statement) materialises no
 selection shards at all, and its tip is then the last root shard in
 pre-order. Either way the tip is deterministic: pre-order is source
@@ -331,8 +384,15 @@ read of the whole node group returns exactly \(M_c\) — with an elided
 unit contributing \(\emptyset\), and a materialisation's read the
 union of its commands'. That is stored content; because
 \(\sigma_{F_c}\) acts row by row it distributes over the union, so a
-read that conjoins \(F_c\) observes \(f_c\) over the pre-statement
-slice, as §1 promised.
+read of the node group that conjoins \(F_c\) observes
+
+$$f_c\Bigl(\bigcup_{\ell \,\in\, \Lambda_{t-1}(R)} C(\ell)\Bigr) \;\cup\; \sigma_{F_c}\Bigl(\bigcup_{o \,\in\, O_c} g_c(o)\Bigr)$$
+
+— the content map over the pre-statement slice, **plus** the filtered
+selection-dependent rows, which are stored on the same node group and
+are no part of \(f_c\). The two coincide exactly when the command
+references no outputs (\(O_c = \emptyset\)) — the pure content verb,
+and the case §1's borrowed \(f_c\) describes.
 
 Second, the reuse the whole design exists for. \(\kappa\bigl(\mathrm{Sh}_c(R)\bigr)\)
 mentions no ephemeral layer, so **one** root shard serves every
@@ -392,8 +452,10 @@ node's ancestry is always present and, by (A1), unchanged.
 One project, root **R**; three layer-creating statements
 \(t = 1, 2, 3\), each a single layer-bearing command — \(c\) implicit,
 nodes indexed by statement number. To exercise all three node kinds,
-assume each root shard's layer carries content for later populates to
-read (with today's verbs none does):
+assume these verbs write **source-bearing** content, so that every layer
+a populate produces is itself content-bearing for later populates (with
+today's verbs none is); selection shards, carrying derived rows only,
+never are:
 
 ```askl
 search("foo") ; loc("main.c", "10") ; search("bar")
@@ -404,10 +466,11 @@ search("foo") ; loc("main.c", "10") ; search("bar")
   in later statements' visibility it is **L1**.
 - Statement 2 has \(E_2 = \{L1\}\): **Sh2(R)** (as a layer:
   **L2**), layer shard **Sh2(L1)**, selection shard **S2** parented on L1.
-- Statement 3 has \(E_3 = \{L1, L2\}\) — Sh2(L1) and S2 are visible
-  too, but carry only derived index rows, nothing a populate reads —
-  so: **Sh3(R)**, layer shards **Sh3(L1)**, **Sh3(L2)**, selection
-  shard **S3** parented on S2.
+- Statement 3 sees three content-bearing light layers — L1, L2, and
+  Sh2(L1), which holds statement 2's populate over L1 — while S2 carries
+  only derived rows. So \(E_3 = \{L1, L2, \mathrm{Sh2}(L1)\}\):
+  **Sh3(R)**, layer shards **Sh3(L1)**, **Sh3(L2)**, **Sh3(Sh2(L1))**,
+  and selection shard **S3** parented on S2.
 
 ```mermaid
 graph TD
@@ -418,6 +481,7 @@ graph TD
     Sh2L1["Sh2(L1) · layer shard"]
     Sh3L1["Sh3(L1) · layer shard"]
     Sh3L2["Sh3(L2) · layer shard"]
+    Sh3Sh2L1["Sh3(Sh2(L1)) · layer shard"]
     S2["S2 · selection shard"]
     S3["S3 · selection shard"]
 
@@ -427,6 +491,7 @@ graph TD
     Sh1R --> Sh2L1
     Sh1R --> Sh3L1
     Sh2R --> Sh3L2
+    Sh2L1 --> Sh3Sh2L1
     Sh1R ==> S2
     S2 ==> S3
 
@@ -434,7 +499,7 @@ graph TD
     classDef layershard fill:#f6efe2,stroke:#c9a35a;
     classDef spine fill:#efe8f7,stroke:#8e6bbf,stroke-width:2px;
     class Sh1R,Sh2R,Sh3R rootshard;
-    class Sh2L1,Sh3L1,Sh3L2 layershard;
+    class Sh2L1,Sh3L1,Sh3L2,Sh3Sh2L1 layershard;
     class S2,S3 spine;
 ```
 
@@ -443,7 +508,8 @@ history (code: `tip`).
 
 Statement 3 stores the union over its materialisation's nodes:
 \(C(\mathrm{Sh3}(R)) \cup C(\mathrm{Sh3}(L1)) \cup C(\mathrm{Sh3}(L2))
-\cup C(S3)\); its read observes that union under the command's
+\cup C(\mathrm{Sh3}(\mathrm{Sh2}(L1))) \cup C(S3)\); its read observes
+that union under the command's
 filter. L2's rows reach statement 3 through Sh3(L2), **not**
 through Sh3(R) — which is what keeps \(\kappa(\mathrm{Sh3}(R))\)
 context-free. And by §3's reuse argument, running `search("bar")` alone
