@@ -77,36 +77,40 @@ hashes per-verb inputs in source order
 ([layer-keys §4](/docs/design/layer-keys/#command-hash)).
 
 A verb can carry **several aspects at once**, contributing each to a
-different slot of \(c\): `search` both *populates* and
-*filters* (its match predicate constrains the selection); `project`
-only filters; the aspects a verb lacks are no-ops in the fold. The rest
-of this page combines the surviving contributions, one aspect at a
-time.
+different slot of \(c\): `search` both *populates* and contributes a
+**selector branch** — its match predicate is an alternative way into the
+index (§6), not a narrowing of one; `project` only filters; the aspects
+a verb lacks are no-ops in the fold. Which slot a contribution lands in
+decides how it combines with its neighbours — branches disjoin, filters
+conjoin — so the distinction is not bookkeeping. The rest of this page
+combines the surviving contributions, one aspect at a time.
 
 ## 3. Filters compose {#filters-compose}
 
-Each filter \(g\) of the assembled command induces a **selection**
-\(\sigma_g\): the function keeping exactly the rows that satisfy
-\(g\). Selections compose as functions, and composing them is the same
-as conjoining their predicates:
+Each filter \(\gamma\) of the assembled command induces a **selection**
+\(\sigma_\gamma\): the function keeping exactly the rows that satisfy
+\(\gamma\). Selections compose as functions, and composing them is the
+same as conjoining their predicates:
 
-$$\sigma_{g_1} \circ \sigma_{g_2} \;=\; \sigma_{g_1 \wedge g_2} \;=\; \sigma_{g_2} \circ \sigma_{g_1}$$
+$$\sigma_{\gamma_1} \circ \sigma_{\gamma_2} \;=\; \sigma_{\gamma_1 \wedge \gamma_2} \;=\; \sigma_{\gamma_2} \circ \sigma_{\gamma_1}$$
 
 — order never matters, which is why every page writes one combined
-predicate \(F_c = \bigwedge_j g_j\) rather than a composition chain.
+predicate \(F_c = \bigwedge_j \gamma_j\) rather than a composition chain.
 Nothing here is conjunction-specific: \(\sigma\) is defined for any
 Boolean predicate tree — \(F_c\) itself carries And/Or/Not nodes, and
 §6 puts a disjunction of selector branches on top of it — and any such
 tree normalises to a disjunction of conjunctions. Conjunction is merely
 the law by which *separate* filters combine.
 
-\(F_c\) and \(\sigma_{F_c}\) carry the same information in different
-categories — the predicate is the syntactic object cache keys hash
+\(F_c\) and \(\sigma_{F_c}\) live in different categories — the
+predicate is the syntactic object cache keys hash
 ([layer-keys §2](/docs/design/layer-keys/#filter-hash)), the selection
-is the function evaluation applies — and the map between them is
-many-to-one, since equivalent but structurally different trees induce
-the same selection while hashing apart (harmless: at worst a redundant
-materialisation).
+is the function evaluation applies — and the map from predicate to
+selection is many-to-one: equivalent but structurally different trees
+induce the same selection while hashing apart. So the predicate carries
+strictly more than the selection does, and the surplus is its shape. That
+is harmless here — at worst a redundant materialisation — but it is why
+the two are never used interchangeably.
 
 ## 4. Content verbs union {#content-verbs-union}
 
@@ -125,6 +129,10 @@ $$U_c \;=\; u_1 \cup \dots \cup u_n \qquad U_c(A) \;=\; u_1(A) \cup \dots \cup u
 Applied to a slice \(A\), \(U_c(A)\) is every row any of the command's
 populates writes for \(A\) — for `search("foo") search("bar")`, all
 matches of `foo` in \(A\)'s text plus all matches of `bar`, unfiltered.
+A command with no content verb is the case \(n = 0\), where the union has
+no terms and \(U_c\) is the constant \(\emptyset\) — the unit of union,
+and the reason every statement below can quantify over *all* commands
+rather than over the content-bearing ones.
 
 ## 5. The content map {#content-map}
 
@@ -169,7 +177,10 @@ populate-then-filter.
 
 Because a selection acts row by row and a union of additive maps is
 additive, \(f_c\) is additive — splittable across disjoint inputs —
-exactly when each populate \(u_i\) is. What that additivity buys,
+whenever each populate \(u_i\) is. (Only that direction: a non-additive
+populate whose stray rows the filter happens to discard would leave
+\(f_c\) additive anyway, so additivity of the composite proves nothing
+about its factors.) What that additivity buys,
 and why it is the whole caching story, is the
 [layer-decomposability axiom](/docs/design/shards/#decomposition-axiom).
 
@@ -211,25 +222,73 @@ func("processRequest") {   /* substatement A: functions named processRequest */
 Nesting is not sequence; it is constraint, and it runs both ways. A
 survives only if it actually calls something B selected, and B survives
 only among symbols called by something A selected. Write \(N_c\) for
-command \(c\)'s selection. For every **constraining** neighbour \(n\)
-of \(c\) — its parent, and each of its children — a row survives only
-with *evidence* linking it to that neighbour's selection:
+command \(c\)'s selection.
 
-$$N_c \;=\; \{\, x \in D(c) \;:\; \forall n.\; \exists\, y \in N_n.\; (x, y) \in E_{\mathrm{rel}} \,\}$$
+**What counts as evidence.** Write \(\mathrm{sym}(x)\) for the symbol an
+instance \(x\) belongs to. For a command \(c\) and a neighbour \(n\), the
+**evidence relation** \(\hat{E}_{c,n}\) is a relation *between symbols* —
+a reference edge or a containment edge, whichever the nesting between the
+two asks for, oriented from \(c\)'s side to \(n\)'s. Swapping the roles
+inverts it, \(\hat{E}_{n,c} = \hat{E}_{c,n}^{-1}\), so each of the two
+neighbours reads the same edges in its own direction and there is no
+ambiguity about which way a condition points.
 
-\(E_{\mathrm{rel}}\) is the **evidence relation** — a reference edge or
-a containment edge, whichever the nesting asks for — matched **per
-symbol**: if any instance of a symbol is evidenced, every instance of
-that symbol survives. Weak neighbours (§9) impose no condition and drop
-out of the conjunction.
+**What must be evidenced.** Not every neighbour imposes a condition, and
+the ones that do are not all separate conditions. The **constraining
+sources** of \(c\), written \(\mathrm{Cons}(c)\), are *groups* of
+neighbours:
 
-Each \(N_c\) is defined through its neighbours' \(N_n\), which are
-defined through theirs. The system is mutually recursive, and its
-answer is the **fixpoint**: start from the denotations and narrow, a
-command at a time, until nothing changes. That every step only removes
-rows is what makes the fixpoint reachable, and
-[Evaluating the Fixpoint](/docs/design/evaluation) is how it is
-reached.
+- its parent, alone in a group, if that parent is strong (§9.1);
+- all of its strong children, together in **one** group;
+- each `use()` provider it names, alone in a group.
+
+Weak neighbours (§9.1) join no group and impose nothing. A row survives
+when it has evidence with **some** member of **every** group:
+
+$$N_c \;=\; \Bigl\{\, x \in D(c) \;:\; \forall\, G \in \mathrm{Cons}(c).\;\; \exists\, n \in G.\;\; \exists\, y \in N_n.\;\; \bigl(\mathrm{sym}(x),\, \mathrm{sym}(y)\bigr) \in \hat{E}_{c,n} \,\Bigr\}$$
+
+Groups conjoin; members within a group disjoin. That is why the children
+form one group rather than one each: `func { "a" ; "b" }` keeps the
+functions that call `"a"` *or* `"b"`, and the engine implements exactly
+that, constraining a parent against the union of its children's
+selections. One group per child would read the same query as *calls
+both*.
+
+Two properties now follow from the formula instead of having to correct
+it. Evidence is **matched per symbol** — only \(\mathrm{sym}(x)\) occurs
+on the left, so if any instance of a symbol is evidenced then every
+instance of it survives, which is what it means for a selection to be
+closed per symbol, and what forces the
+[planner](/docs/design/planning/#refinement) to work at symbol level as
+well. And a `use()` provider's edge is
+**one-way**: the provider appears in its user's \(\mathrm{Cons}\), the
+user never in the provider's, so a query carrying a label is covered by
+the same equation as one that does not — with the constraint flowing in
+one direction only.
+
+**The fixpoint.** Each \(N_c\) is defined through its neighbours'
+\(N_n\), which are defined through theirs. Read the system as one
+equation on whole *assignments*: a point of the lattice
+\(\prod_c \mathcal{P}(D(c))\) — one subset of each denotation, ordered by
+inclusion in every component — is carried by the right-hand side above to
+another point, and monotonically, since enlarging a neighbour's set can
+only add witnesses. A query's answer is the **greatest** fixpoint of that
+map. The least one will not do, because every condition is existential:
+it demands a witness, so with all neighbours empty no row has one and the
+all-empty assignment reproduces itself — a perfectly good fixpoint of any
+nested query, answering it with nothing. Greatest says the intended thing
+instead: keep every row that no constraint actually rules out. Reaching
+it is a descent — start above it and remove what the conditions deny —
+and because the denotations are finite the lattice has finite height, so
+the descent stops.
+[Evaluating the Fixpoint](/docs/design/evaluation) is that descent as an
+algorithm.
+
+\(\mathrm{Cons}(c)\) is settled before any of this begins. Weakness has a
+fixpoint of its own (§9.1), computed over the shape of the query alone and
+never over a selection, so the two are stratified rather than mutually
+recursive: which neighbours constrain is decided first, and only then is
+the system above solved.
 
 Between the denotation and the selection sits the object the engine
 actually asks the database for. A **read** evaluates \(P(c)\) together
@@ -238,7 +297,10 @@ as finished results, which is enough to bound it on both sides:
 
 $$N_c \;\subseteq\; \text{read} \;\subseteq\; D(c)$$
 
-The upper bound is why a read is worth caching where a selection is not
+The left inclusion is what lets the engine begin the descent at the reads
+rather than at the denotations: a narrowing iteration lands on the
+greatest fixpoint only if it starts above it, and every read is above it.
+The right one is why a read is worth caching where a selection is not
 ([From Result to Cache §5](/docs/design/derivation/#upper-bound)), and
 making it tight is the whole business of
 [Planning from Measured Cardinality](/docs/design/planning).
@@ -282,10 +344,13 @@ A strong substatement's selection participates in the composition: a parent
 survives only if it actually relates to something the strong child selected.
 It is exactly the strong neighbours that appear in §7's conjunction.
 
-A substatement is a *weakness candidate* when its command is **non-constraining**:
-every selector is a unit verb or a bare (nameless) type selector. Filters
-alone do not make a command constraining — `filter("compound_name", "x")` on
-an otherwise bare substatement leaves it a candidate.
+A substatement is a *weakness candidate* when its command is
+**non-constraining**: every selector is a unit verb or a bare (nameless)
+type selector, **and** no verb of any kind constrains a name. A name is a
+name wherever it is written — `filter("exact_name", "x")` pins a set as
+tightly as `"x"` does, and makes its command constraining even though it
+is a filter. Type predicates stay structural, so bare `func` and a
+type filter both leave a command a candidate.
 
 The **propagation rule** is then iterated to a fixpoint of its own. A
 candidate becomes weak iff:
@@ -297,15 +362,17 @@ The consequence worth internalising: a candidate **sandwiched between a
 strong parent and a strong child stays strong**. In
 
 ```askl
-select filter("compound_name", "test", inherit="true") {{ "b" }}
+select func {{ "b" }}
 ```
 
 the outer command is strong (`select`), the leaf `"b"` is strong, so the bare
 middle scope — a candidate — satisfies neither weakening condition and
-constrains: only callers of `test.b` that the outer level also relates to
-survive. Drop the `select` and the outer command becomes a top-level
-candidate, turns weak, weakness flows through the middle, and the same query
-becomes an echo that shows *every* namespace-matching caller.
+constrains: only callers of `"b"` that the outer level also relates to
+survive. Drop the `select` and the outer command is a bare type selector,
+so it becomes a top-level candidate, turns weak, weakness flows down
+through the middle, and the same query becomes an echo that shows *every*
+caller. Give the outer command a name instead of `select` and it is
+strong again, by either route.
 
 ### 9.2. Bindness (component-level, outcome) {#bindness}
 
@@ -340,8 +407,15 @@ materialising, which is why it is rejected rather than answered.
   this command's selection participates in the composition, so a
   `select`-carrying command is never a weakness candidate.
 
-Weakness otherwise keeps its defaults: anchored commands are constraining
-by construction, and the propagation rule above decides the rest.
+Weakness otherwise keeps its defaults, and one invariant links the two
+levels: **an anchored command is never weak**. Every anchor either is a
+constraining selector or carries a name constraint, so an anchored command
+fails the candidate test of §9.1 outright and the propagation rule never
+reaches it. That is what keeps the planner and the composition talking
+about the same query: only anchored substatements probe
+([Planning §3](/docs/design/planning/#anchors)), so every neighbour a
+probe resolves is a strong one, and any constraint the planner derives
+from it is a constraint §7's conjunction imposes too.
 
 ## Where to read more
 
