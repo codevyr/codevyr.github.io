@@ -43,6 +43,11 @@ Semicolons also work as separators (useful for single-line queries):
 "foo"; "bar"    /* Two statements on one line */
 ```
 
+At the top level the two statements are independent: both run, and their results
+are unioned into one graph. **Inside a scope, `;` does something else** — it
+separates *sibling* children, and those **conjoin**. See
+[Sibling Statements in a Scope](/docs/syntax/#sibling-statements-in-a-scope).
+
 Without newlines or semicolons, verbs on the same line belong to the same statement:
 
 ```askl
@@ -203,7 +208,10 @@ Verbs in Askl fall into three categories:
 | `select` | Make the statement **binding**: enumerate everything the statement's filters allow (budget-bounded), and keep the statement constraining in composition |
 
 Multiple selectors in a statement are **OR-ed** — the statement selects the union of
-their matches, constrained by the statement's filters.
+their matches, constrained by the statement's filters. Inside a scope that is exactly
+the contrast with `;`: `X { A B }` is one child whose selectors disjoin, `X { A ; B }`
+two children that conjoin
+([Sibling Statements in a Scope](/docs/syntax/#sibling-statements-in-a-scope)).
 
 Every query group — a *component*: one or more top-level statements with
 their nested scopes, joined by label references — must contain at least one
@@ -869,6 +877,36 @@ Multi-level relationships:
 
 ```askl
 "a" { "b" { "c" } }  /* a calls b, b calls c */
+```
+
+### Sibling Statements in a Scope
+
+A scope may hold several statements, separated by `;` or a newline. They
+**conjoin**: the parent survives only where it relates to *each* of them.
+
+```askl
+func("handler") { "validate" ; "log" }
+/* handlers that call BOTH validate and log */
+```
+
+Two selectors written in **one** statement disjoin instead — that is the whole
+difference between the two spellings:
+
+```askl
+func("handler") { "validate" "log" }
+/* handlers that call EITHER validate or log */
+```
+
+A sibling that matches nothing empties the conjunction, exactly as a lone child
+would: `func("handler") { "validate" ; "typo" }` returns nothing at all.
+
+A `;` between **top-level** statements is not this operator. It ends the
+statement rather than adding a condition; both statements run and their results
+are unioned into one graph:
+
+```askl
+func("handler") { "validate" } ; func("handler") { "log" }
+/* handlers calling validate, plus handlers calling log */
 ```
 
 ## Query Rules and Validation

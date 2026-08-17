@@ -53,10 +53,9 @@ Each statement then runs three phases before the next one starts
 
 **Composition** finishes the job. A monotone worklist propagates
 constraints between neighbouring substatements — a parent narrows its
-children, and its children narrow it against the *union* of what they
-hold, so `func { "a" ; "b" }` keeps the callers of either — until
-nothing changes; the instances still standing, and the edges among them,
-are emitted as the result graph
+children, and *each* child narrows it back, so `func { "a" ; "b" }` keeps
+the callers of both — until nothing changes; the instances still
+standing, and the edges among them, are emitted as the result graph
 ([Evaluating the Fixpoint](/docs/design/evaluation)).
 
 ## Three questions {#three-questions}
@@ -101,12 +100,23 @@ page that owns it.
   statement. Statements are the query's only time axis (`;` or a
   newline separates them; nesting never sequences), and a `@label` may
   only be referenced from a *later* statement — same-statement or
-  forward references are parse errors.
+  forward references are parse errors. Top-level statements impose
+  nothing on each other: their selections are simply unioned into the
+  query's nodes
+  ([derivation §2](/docs/design/derivation/#decomposition)).
 - **substatement** — any command-plus-scope node within a statement, at
   any depth. By convention a statement is a substatement of itself, so
   machinery that is uniform over nodes (weakness, probes, hashes)
   is stated once, per substatement. The engine's `Statement` type
   corresponds to *substatement*.
+- **scope** — the `{ }` block of a substatement, holding its children.
+  Sibling children **conjoin**: the parent survives only with evidence to
+  each of them, so `func { "a" ; "b" }` keeps the callers of both and an
+  empty child empties the parent
+  ([semantics §7](/docs/design/semantics/#selections)). The disjunction is
+  spelled inside one command instead — `func { "a" "b" }` is a single
+  child with two selector branches. A `;` between top-level statements is
+  a third thing again: a separator, not a condition.
 - **command** — the verb bag of one substatement, assembled by folding
   its verbs in source order; a later verb may override an earlier
   same-tagged one ([Queries and their Meaning](/docs/design/semantics)).

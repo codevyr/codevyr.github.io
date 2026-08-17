@@ -110,10 +110,14 @@ order-independence means a different order would reach the same fixpoint, only s
 
 - **Child role** (parent notifying child): child derives its selection from the parent's
   current selection. Child enters the worklist if its selection changed.
-- **Parent role** (child notifying parent): the engine defers until *all* children of the
-  parent have selections, then merges their selections (union) and constrains the parent.
-  This ensures a parent like `func { "a" ; "b" }` retains functions that call *either*
-  `"a"` *or* `"b"`, not only those that call both.
+- **Parent role** (child notifying parent): the notifying child constrains the parent
+  against its own selection, keeping the parent rows that have evidence with it. Each
+  child does this as it resolves, and applying the constraints one at a time is what
+  makes siblings conjoin — a parent like `func { "a" ; "b" }` keeps the functions that
+  call `"a"` *and* `"b"`, and a child that selects nothing empties it. No child waits
+  for its siblings: each constraint is sound on its own
+  ([semantics §7](/docs/design/semantics/#selections)) and they commute, so §5's
+  order-independence covers the order they arrive in.
 - **User role** (provider notifying user): the user substatement derives from the provider's
   selection, as if the provider's symbols were its scope.
 

@@ -69,21 +69,21 @@ through **edge evidence**
 \(\hat{E}_{c,n}\) for the evidence relation between \(c\)'s symbols and
 neighbour \(n\)'s — the edges of the kinds their nesting asks for,
 oriented from \(c\)'s side, so that \(\hat{E}_{c,n}\) is the union of its
-per-kind parts \(\hat{E}^{\mathrm{rel}}_{c,n}\). Constraining neighbours
-come in **groups**
-(the parent alone; all strong children together; each `use()` provider
-alone), and a row of \(c\) survives only with evidence to some member of
-every group; weak neighbours join no group and impose nothing
+per-kind parts \(\hat{E}^{\mathrm{rel}}_{c,n}\). The **constraining
+neighbours** of \(c\) — its parent, each strong child, each `use()`
+provider — impose one condition each, and a row of \(c\) survives only
+with evidence to every one of them; weak neighbours constrain nothing
 ([Weakness and Bindness](/docs/design/semantics/#weakness-and-bindness)).
-This page uses one direction of that equation, once per group \(G\):
+This page uses one direction of that equation, once per constraining
+neighbour \(n\):
 
-$$N_c \;\subseteq\; \bigl\{\, x \in D(c) \;:\; \exists\, n \in G.\; \exists\, y \in N_n.\; \bigl(\mathrm{sym}(x),\, \mathrm{sym}(y)\bigr) \in \hat{E}_{c,n} \,\bigr\}$$
+$$N_c \;\subseteq\; \bigl\{\, x \in D(c) \;:\; \exists\, y \in N_n.\; \bigl(\mathrm{sym}(x),\, \mathrm{sym}(y)\bigr) \in \hat{E}_{c,n} \,\bigr\}$$
 
-Each group is thus a necessary condition on \(N_c\), and a *single*
-neighbour is one only when it forms a group by itself — which the
-refinement below has to respect. Evidence is matched per symbol, since
-only \(\mathrm{sym}(x)\) occurs on the left; §5's roles are lifted to
-symbol level for exactly that reason.
+Each constraining neighbour is thus a necessary condition on \(N_c\) *on
+its own*, dropping the others being a weakening — which is what lets the
+refinement below pick whichever single one it likes. Evidence is matched
+per symbol, since only \(\mathrm{sym}(x)\) occurs on the left; §5's roles
+are lifted to symbol level for exactly that reason.
 
 **Monotonicity.** The worklist only ever narrows: at every intermediate
 stage the current selection of any substatement is a superset of \(N_c\).
@@ -184,12 +184,11 @@ in wave \(i+1\), so constraint flows across the tree.
 neighbour, re-probing only when a strictly smaller binding appears: a
 role's evaluation cost scales with the bound set, and a broad neighbour can
 cost more to conjoin than it narrows. The refined result is a larger — still
-sound — superset; the worklist narrows the rest. Which neighbour may be
-bound is not free, though: refining against one neighbour is refining
-against a condition \(N_c\) must satisfy, so that neighbour has to form a
-group of §2 by itself — the parent, or an only strong child. Several
-strong children share a single group, their evidence disjoins, and a role
-built from one of them would rule out rows the other one evidences.
+sound — superset; the worklist narrows the rest. Any *one* constraining
+neighbour may be bound: by §2 each is a condition \(N_c\) must satisfy
+regardless of the others, so refining against one of several siblings
+keeps every row the conjunction can keep and merely leaves the siblings'
+conditions to the worklist.
 
 ## 6. Properties {#properties}
 
@@ -212,21 +211,22 @@ read will use — \(\mathrm{Inst}\) must not move underneath an id list.
 
 **Theorem 2 (soundness).** Every resolved set is a superset of the
 selection: \(N_c \subseteq \mathrm{inst}(\mathrm{res}(c))\), provided each
-binding it was obtained from is a neighbour that forms a group of §2 by
-itself.
+binding it was obtained from is a constraining neighbour of §2.
 
-Strength of the bound neighbour comes free, by an invariant the engine
-maintains: an anchored command is never weak
+That proviso is discharged by an invariant the engine maintains: an
+anchored command is never weak
 ([semantics §9.2](/docs/design/semantics/#bindness)), and only anchored
-substatements probe (§3), so every resolved neighbour is strong and the
-group it sits in is a genuine conjunct of the composition. What the
-binding rule must supply is that the group is a singleton (§5).
+substatements probe (§3), so every resolved neighbour is strong and hence
+a conjunct of the composition in its own right. How many siblings it has
+no longer enters the hypothesis — under a conjunction each of them is a
+separate necessary condition, so binding one is a relaxation and never an
+overreach.
 
 *Proof sketch, by induction on the wave in which a set was resolved.*
 Wave 0: \(\mathrm{res}(c) = \mathrm{ids}(D(c))\) by Theorem 1, and
 \(N_c \subseteq D(c)\) by definition. Wave \(i+1\): let \(c\) resolve by
 binding \(n\), itself resolved in some wave \(\le i\), and take
-\(x \in N_c\). Then \(x \in D(c)\), and since \(\{n\}\) is a group, §2
+\(x \in N_c\). Then \(x \in D(c)\), and since \(n\) constrains \(c\), §2
 gives \(y \in N_n\) with
 \(\bigl(\mathrm{sym}(x), \mathrm{sym}(y)\bigr) \in \hat{E}_{c,n}\). That
 relation is the union of its per-kind parts, so the witnessing edge has

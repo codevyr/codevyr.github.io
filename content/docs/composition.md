@@ -78,6 +78,39 @@ Each container type also sets default child types:
 | `macro` | macros, functions |
 | `field` / `method` | functions |
 
+## Several Children in One Scope
+
+A scope can hold more than one statement, and the parent has to satisfy **all**
+of them. Sibling statements — separated by `;` or a newline — **conjoin**:
+
+```askl
+mod("api") has { "Encode" ; "Decode" }
+/* modules containing BOTH Encode and Decode */
+```
+
+Writing the two selectors in a **single** statement disjoins them instead:
+
+```askl
+mod("api") has { "Encode" "Decode" }
+/* modules containing EITHER Encode or Decode */
+```
+
+The conjunction is genuine, so a sibling that matches nothing removes the
+parent: `mod("api") has { "Encode" ; "Typo" }` returns nothing.
+
+A `;` between **top-level** statements is a different separator — it ends the
+statement instead of adding a condition, and the two statements' results are
+unioned:
+
+```askl
+mod("api") has { "Encode" } ; mod("api") has { "Decode" }
+/* modules containing Encode, plus modules containing Decode */
+```
+
+The same contrast in the reference direction, and the rest of the scope
+syntax, is in the
+[Syntax Reference](/docs/syntax/#sibling-statements-in-a-scope).
+
 ## Practical Examples
 
 ### Find Functions in a Module

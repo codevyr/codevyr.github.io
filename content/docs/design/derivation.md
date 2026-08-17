@@ -48,17 +48,16 @@ Write \(D(c)\) for what command \(c\) denotes on its own — the rows its
 own predicate \(P(c)\) matches, filters and selector branches together,
 computable from the command alone
 ([semantics §6](/docs/design/semantics/#denotation)). Selection is
-narrower than that: a row survives only if it also has evidence with
-what \(c\)'s constraining neighbours selected. Those neighbours come in
-*groups* — the parent alone, the strong children together, each label
-provider alone — collected as \(\mathrm{Cons}(c)\), and groups conjoin
-where a group's members disjoin, so `func { "a" ; "b" }` asks for a call
-to either. Writing \(\mathrm{sym}(x)\) for the symbol an instance \(x\)
-belongs to and \(\hat{E}_{c,n}\) for the **evidence relation** between
+narrower than that: a row survives only if it also has evidence with what
+**each** of \(c\)'s constraining neighbours selected — its parent, each
+strong child, each label provider, collected as \(\mathrm{Cons}(c)\), so
+that `func { "a" ; "b" }` asks for a call to both. Writing
+\(\mathrm{sym}(x)\) for the symbol an instance \(x\) belongs to and
+\(\hat{E}_{c,n}\) for the **evidence relation** between
 symbols — a reference or a containment edge
 ([semantics §7](/docs/design/semantics/#selections)):
 
-$$N_c \;=\; \Bigl\{\, x \in D(c) \;:\; \forall\, G \in \mathrm{Cons}(c).\ \exists\, n \in G.\ \exists\, y \in N_n.\ \bigl(\mathrm{sym}(x),\, \mathrm{sym}(y)\bigr) \in \hat{E}_{c,n} \,\Bigr\}$$
+$$N_c \;=\; \Bigl\{\, x \in D(c) \;:\; \forall\, n \in \mathrm{Cons}(c).\ \exists\, y \in N_n.\ \bigl(\mathrm{sym}(x),\, \mathrm{sym}(y)\bigr) \in \hat{E}_{c,n} \,\Bigr\}$$
 
 Each \(N_c\) is defined in terms of its neighbours' \(N_n\), which are
 defined in terms of theirs. The system is mutually recursive, and its

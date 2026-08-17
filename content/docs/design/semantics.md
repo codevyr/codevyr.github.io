@@ -233,26 +233,29 @@ inverts it, \(\hat{E}_{n,c} = \hat{E}_{c,n}^{-1}\), so each of the two
 neighbours reads the same edges in its own direction and there is no
 ambiguity about which way a condition points.
 
-**What must be evidenced.** Not every neighbour imposes a condition, and
-the ones that do are not all separate conditions. The **constraining
-sources** of \(c\), written \(\mathrm{Cons}(c)\), are *groups* of
-neighbours:
+**What must be evidenced.** Not every neighbour imposes a condition. The
+**constraining neighbours** of \(c\), written \(\mathrm{Cons}(c)\), are
 
-- its parent, alone in a group, if that parent is strong (§9.1);
-- all of its strong children, together in **one** group;
-- each `use()` provider it names, alone in a group.
+- its parent, if that parent is strong (§9.1);
+- each of its strong children;
+- each `use()` provider it names.
 
-Weak neighbours (§9.1) join no group and impose nothing. A row survives
-when it has evidence with **some** member of **every** group:
+Weak neighbours (§9.1) are not among them and impose nothing. Every
+constraining neighbour is a condition in its own right, and a row
+survives only when it has evidence with **every** one of them:
 
-$$N_c \;=\; \Bigl\{\, x \in D(c) \;:\; \forall\, G \in \mathrm{Cons}(c).\;\; \exists\, n \in G.\;\; \exists\, y \in N_n.\;\; \bigl(\mathrm{sym}(x),\, \mathrm{sym}(y)\bigr) \in \hat{E}_{c,n} \,\Bigr\}$$
+$$N_c \;=\; \Bigl\{\, x \in D(c) \;:\; \forall\, n \in \mathrm{Cons}(c).\;\; \exists\, y \in N_n.\;\; \bigl(\mathrm{sym}(x),\, \mathrm{sym}(y)\bigr) \in \hat{E}_{c,n} \,\Bigr\}$$
 
-Groups conjoin; members within a group disjoin. That is why the children
-form one group rather than one each: `func { "a" ; "b" }` keeps the
-functions that call `"a"` *or* `"b"`, and the engine implements exactly
-that, constraining a parent against the union of its children's
-selections. One group per child would read the same query as *calls
-both*.
+Sibling children therefore **conjoin**: `func { "a" ; "b" }` keeps the
+functions that call `"a"` *and* `"b"`, and a child that selects nothing
+empties its parent, which is what a false conjunct does. Disjunction is
+written inside a *single* command instead — in `func { "a" "b" }` the one
+child carries two selector branches (§6), and branches disjoin. So the
+two spellings are two different operators, and the `;` that conjoins does
+so only inside a scope: between top-level statements `;` separates whole
+answers, which are unioned into the query's result
+([From Result to Cache §2](/docs/design/derivation/#decomposition)),
+imposing nothing on each other.
 
 Two properties now follow from the formula instead of having to correct
 it. Evidence is **matched per symbol** — only \(\mathrm{sym}(x)\) occurs
