@@ -10,9 +10,15 @@ node already exists, so its populate need not run". A key is therefore a
 promise about what a populate reads, and one rule governs every hash on
 this page:
 
-> **Whatever a populate *reads*, its key must *name* — and nothing more.**
+> **Whatever a populate *reads*, its key must *name* — together with the
+> place the node occupies — and nothing more.**
 
-Both halves are load-bearing, and they fail in opposite directions. Name
+The middle clause is not decoration. A node is a position in the forest
+as well as a bag of rows, and a hit hands back both; §6's keys name that
+position, and
+[Partitioning a Materialisation](/docs/design/shards/#node-kinds) says
+which nodes need it and why. The outer two halves are load-bearing, and
+they fail in opposite directions. Name
 too little and two populates that read different things collide on one
 key: a query silently gets someone else's rows, which is a correctness
 bug. Name too much and two populates that read the same things are given
@@ -60,17 +66,36 @@ Two details, each worth its own sentence:
 
 ## 2. The filter hash {#filter-hash}
 
-\(\mathcal{H}(F_c)\) is computed recursively over the predicate tree:
+Write \(\mathcal{H}\) for the raw cryptographic hash over byte strings —
+the one primitive this page builds from. A predicate tree is not a byte
+string, so the filter hash \(\mathcal{H}_F\) is defined over the tree
+instead, one node at a time:
 
-- each **leaf** hashes its own semantics: which predicate it is, and its
-  arguments in canonical encoding;
-- each **inner node** hashes an operator tag (And, Or, Not) followed by its
-  children's hashes.
+- each **leaf** hashes its own semantics — which predicate it is,
+  followed by its arguments in canonical encoding:
+  \(\mathcal{H}_F(\mathrm{leaf}) = \mathcal{H}\bigl(\mathrm{dom}(\mathrm{leaf}) \Vert \mathrm{args}(\mathrm{leaf})\bigr)\);
+- each **inner node** hashes an operator tag — one of the three
+  combinators, conjunction, disjunction, negation — followed by its
+  children's hashes:
+  \(\mathcal{H}_F(\mathrm{op}(t_1,\dots,t_n)) = \mathcal{H}\bigl(\mathrm{dom}(\mathrm{op}) \Vert \mathcal{H}_F(t_1) \Vert \dots \Vert \mathcal{H}_F(t_n)\bigr)\),
+  each child hash being a fixed 32 bytes.
 
 Two filters hash equally exactly when they are the same tree
 ([search()](/docs/design/search/#cache-key-composition) gives the
 byte layout). This is the *only* filter-awareness mechanism in the whole
 cache — no filter type is special-cased anywhere.
+
+**(A0) Hash faithfulness.** Every claim on this page reads *equal
+hashes, equal inputs*, and that is an assumption in two parts.
+\(\mathcal{H}\) is **collision-resistant**, so equal digests mean equal
+byte strings for any input a query can construct; and every encoding fed
+to it is **canonical and injective** — fixed-width or length-prefixed,
+one byte string per value, and never one byte string for two values — so
+equal byte strings mean equal inputs. (A0) sits alongside the three
+assumptions of
+[Partitioning a Materialisation](/docs/design/shards/#key-trust), which
+say the same of what a key folds rather than of the hash that folds it;
+together they are what "equal keys, equal content" stands on.
 
 ## 3. Per-verb input hashes {#verb-input-hashes}
 
@@ -79,7 +104,7 @@ itself. Each content verb \(i\) of command \(c\) gets its own hash over
 three ingredients — which verb it is, what it was given, and what of the
 command's context its populate actually reads:
 
-$$H(c,i) \;=\; \mathcal{H}\bigl(\, \mathrm{dom}(i) \,\Vert\, \mathrm{inputs}(i) \,\Vert\, \mathcal{H}(F_c) \,\bigr)$$
+$$H(c,i) \;=\; \mathcal{H}\bigl(\, \mathrm{dom}(i) \,\Vert\, \mathrm{inputs}(i) \,\Vert\, \varphi(c,i) \,\bigr)$$
 
 - \(\mathrm{dom}(i)\) — the verb discriminator (`"search"`, `"loc"`, …): a
   domain-separation tag, so different verbs with coincidentally equal
@@ -89,17 +114,26 @@ $$H(c,i) \;=\; \mathcal{H}\bigl(\, \mathrm{dom}(i) \,\Vert\, \mathrm{inputs}(i) 
   limit), together with its **fused scope** where it has one. A verb that
   restricts its populate to the enclosing container — `search` narrowing
   its scan to the parent substatement's byte ranges — reads that
-  container's condition, so by the governing rule its key must name it,
-  and the fused scope's condition (or its resolved instance ids) joins
-  the verb's inputs. A verb that does not fuse (`loc`, single-file by
+  container, so by the governing rule its key must name it: the
+  container's condition when it has one, and the instance ids the
+  container has already resolved to when it has those, both folded here.
+  This is the one ingredient through which an upstream *result* reaches a
+  command hash — the visibility chain itself never does, and the ids are
+  resolved to byte ranges against the roots-only view, so what the key
+  names still fixes what the populate produces. The cost is
+  fragmentation: the same search under two container bindings is two
+  entries. A verb that does not fuse (`loc`, single-file by
   construction) adds nothing here;
-- \(\mathcal{H}(F_c)\) — present exactly when the populate *reads*
-  \(F_c\), per the governing rule. `search` reads it: \(F_c\)'s object-level
+- \(\varphi(c,i)\) — the filter hash \(\mathcal{H}_F(F_c)\) when verb
+  \(i\)'s populate *reads* \(F_c\), and the empty byte string when it
+  does not, per the governing rule. Which of the two applies is fixed by
+  the verb, and \(\mathrm{dom}(i)\) already names the verb, so the two
+  shapes cannot be mistaken for one another. `search` reads it: \(F_c\)'s object-level
   part narrows the scan's input corpus (a `project(...)` decides which
   projects' content is scanned at all), so the key must name it — and it
   names the whole tree via the shared §2 hash rather than extracting the
   object part, since that part is derived from the full tree. A verb
-  whose populate reads nothing of \(F_c\) folds no \(\mathcal{H}(F_c)\):
+  whose populate reads nothing of \(F_c\) leaves \(\varphi(c,i)\) empty:
   `loc`'s path and `project=` arguments already fix what it reads, and
   \(F_c\) reaches its rows only at read time.
 
@@ -128,7 +162,7 @@ one redundant materialisation.
 ## 5. Acyclicity {#acyclicity}
 
 The definitions may look mutually recursive — \(H(c,i)\) folds
-\(\mathcal{H}(F_c)\), and \(F_c\) is built from the same command — but the
+\(\mathcal{H}_F(F_c)\), and \(F_c\) is built from the same command — but the
 two roles are **disjoint**: \(F_c\) is assembled from *filters* alone, and
 content-producing verbs contribute nothing to it. The hash flow is
 therefore a strictly layered DAG, filter leaves at the bottom and a node
@@ -136,7 +170,7 @@ key at the top:
 
 ```mermaid
 graph TD
-    L1["filter leaf<br/>project(&quot;linux&quot;)"] --> F["ℋ(F_c)<br/>filter-tree hash"]
+    L1["filter leaf<br/>project(&quot;linux&quot;)"] --> F["ℋ_F(F_c)<br/>filter-tree hash"]
     L2["filter leaf<br/>type = func"] --> F
     F --> H1["H(c,1)<br/>search(&quot;a&quot;)"]
     F --> H2["H(c,2)<br/>search(&quot;b&quot;)"]
@@ -172,8 +206,8 @@ $$\kappa_{\mathrm{root}} \;=\; \mathcal{H}\bigl(\, \mathrm{dom}_{\mathrm{root}} 
 $$\kappa\bigl(\mathrm{Sh}_c(\ell)\bigr) \;=\; \mathcal{H}\bigl(\, \mathrm{dom}_{\mathrm{layer}} \,\Vert\, \mathrm{id}(\ell) \,\Vert\, \kappa_{\mathrm{root}} \,\bigr)$$
 $$\kappa\bigl(S_c\bigr) \;=\; \mathcal{H}\bigl(\, \mathrm{dom}_{\mathrm{sel}} \,\Vert\, \mathrm{id}(\mathrm{parent}) \,\Vert\, \kappa_{\mathrm{root}} \,\Vert\, \mathrm{extra} \,\bigr)$$
 
-where \(\mathcal{H}\) is the raw cryptographic hash over byte strings,
-\(\Vert\) byte concatenation, \(h(R)\) the root layer's stored identity
+with \(\mathcal{H}\) the raw hash of §2, \(\Vert\) byte concatenation,
+\(h(R)\) the root layer's stored identity
 hash, and \(\mathrm{id}(\cdot)\) a database id — so a non-root node folds
 its parent's *id*, never its parent's key. Every part is fixed-width or
 length-prefixed, so nothing needs a delimiter. Three ingredients deserve
@@ -193,9 +227,13 @@ keying scheme needs no purge
 **\(\kappa_{\mathrm{root}}\) as an ingredient.** Only the root shard
 folds \(H(c)\) directly; the other two reach the command *through*
 \(\kappa_{\mathrm{root}}\). Each is thereby tied to the exact root-shard
-incarnation it was cached against, and inherits its project scoping —
-the root shard folds \(h(R)\), so the visible projects' key spaces are
-already disjoint — for free.
+incarnation it was cached against — which, for a layer shard, is more
+than its own rows read: it inherits \(h(R)\) as well as the command.
+That is knowing over-naming, and
+[Partitioning a Materialisation](/docs/design/shards/#node-kinds) is
+where the coupling is weighed against the fragmentation it costs. Project
+scoping is not part of the bargain: a layer id names one layer, and a
+layer belongs to one project.
 
 **\(\mathrm{extra}\).** This is the governing rule applied to a node that
 reads **more than the one input its parent names** (the code's
