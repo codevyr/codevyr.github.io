@@ -53,9 +53,11 @@ Each statement then runs three phases before the next one starts
 
 **Composition** finishes the job. A monotone worklist propagates
 constraints between neighbouring substatements — a parent narrows its
-children, children narrow their parent — until nothing changes; the
-instances still standing, and the edges among them, are emitted as the
-result graph ([Evaluating the Fixpoint](/docs/design/evaluation)).
+children, and its children narrow it against the *union* of what they
+hold, so `func { "a" ; "b" }` keeps the callers of either — until
+nothing changes; the instances still standing, and the edges among them,
+are emitted as the result graph
+([Evaluating the Fixpoint](/docs/design/evaluation)).
 
 ## Three questions {#three-questions}
 
@@ -114,11 +116,18 @@ page that owns it.
   filter, layer content, or both.
 - **filter** — a constraint on rows that a command carries alongside its
   content verbs: `project("linux")`, a type constraint, `ignore(...)`.
-  Most filters are contributed by verbs; a bare name string contributes
-  one without being a verb. A command's filters are combined into a
-  single predicate \(F_c\), a tree of leaves under And/Or/Not nodes, and
-  "the command's filter" means that composite
+  A command's filters are combined into a single predicate \(F_c\), a
+  tree of leaves under And/Or/Not nodes, and "the command's filter" means
+  that composite
   ([Layer Keys §1](/docs/design/layer-keys/#filter-predicate)).
+- **selector branch** — an alternative way *into* the index that a
+  command offers, rather than a narrowing of one: a name pattern
+  (`"foo"`, `func("open")`), a `search` match, a `loc` position. A
+  command's branches are OR-ed with one another and conjoined with its
+  filters, and the result is its predicate \(P(c)\)
+  ([semantics §6](/docs/design/semantics/#denotation)). Branches disjoin
+  where filters conjoin, so which of the two slots a condition lands in
+  decides whether adding it widens or narrows.
 - **component** — one or more statements connected by label references;
   the unit of the anchor rule and of bindness.
 - **anchor** — a verb that can produce instances on its own: a name
@@ -129,7 +138,9 @@ page that owns it.
 - **weakness** — whether a command's selection constrains its
   neighbours. A weak substatement is a display echo: it contributes
   nodes and edges, but an empty match does not eliminate its parent or
-  children ([semantics §9.1](/docs/design/semantics/#weakness)).
+  children ([semantics §9.1](/docs/design/semantics/#weakness)). An
+  anchored command is never weak
+  ([semantics §9.3](/docs/design/semantics/#select-bridges)).
 - **bindness** — whether a *component* demands instances at all. A
   binding component wants results and must be satisfiable; a
   non-binding one is structure or directive, and is silently empty
@@ -144,10 +155,17 @@ page that owns it.
   ([semantics §6](/docs/design/semantics/#denotation)).
 - **selection** — \(N_c\), the instances a command holds once the
   worklist fixpoint has run, closed per symbol; \(N_s\) for a whole
-  statement ([semantics §7](/docs/design/semantics/#selections)). The
+  statement, \(N\) for the whole query
+  ([semantics §7](/docs/design/semantics/#selections)). The
   referenced outputs \(O_c\) of a command are earlier statements'
   selections. Distinct from the selection *function* \(\sigma_{F_c}\),
   which filters a row set.
+- **evidence relation** — \(\hat{E}_{c,n}\), the edge kind that the
+  nesting between a command and a neighbour asks for, read as a relation
+  between *symbols* and oriented from \(c\) towards \(n\); reversing the
+  pair inverts it. It is what a row must have with a constraining
+  neighbour's selection in order to survive
+  ([semantics §7](/docs/design/semantics/#selections)).
 - **populate** — the function a content verb contributes: given a slice
   of layer content, it returns the rows that verb writes for just that
   slice ([semantics §1](/docs/design/semantics/#what-a-verb-denotes)).
@@ -155,6 +173,28 @@ page that owns it.
   command's populates unioned.
 - **wave** — one probe iteration of the cost-based executor (wave 0 plus
   the refinement waves), distinct from a materialisation.
+- **probe** — one capped question about a set of instances: *are there at
+  most \(k\) of them, and if so which?* It is an id fetch stopped after
+  \(k+1\) rows, so a single database statement answers both halves
+  ([planning §4](/docs/design/planning/#probes)).
+- **resolved**, **capped** — a probe's two outcomes. A **resolved**
+  substatement holds the exact ids of what it probed and never evaluates
+  that predicate again; a **capped** one hit the cap, its fetched ids are
+  discarded, and it stays predicate-driven. Only anchored substatements
+  probe, so a resolved neighbour is always a strong one.
+- **role** — the semi-join image of a resolved neighbour's ids under one
+  relationship, lifted to symbol level: what that neighbour can reach,
+  conjoined into a substatement's predicate to narrow it before it reads
+  ([planning §5](/docs/design/planning/#refinement)). Not to be confused
+  with the worklist's *dependency* roles — child, parent, user — which
+  name the direction a notification travels
+  ([evaluation §2.2](/docs/design/evaluation/#run-worklist)).
+- **REFS**, **HAS** — the two edge kinds a nesting can ask for: a
+  **REFS** edge is a reference (one symbol calls or uses another), a
+  **HAS** edge is containment (a module contains a function). A scope
+  written `{ }` with no relationship modifier asks for either; `@has` and
+  `@refs` pin it. Which kind a nesting asks for is what its evidence
+  relation stands for.
 
 **Storage and reuse.**
 
@@ -167,7 +207,9 @@ page that owns it.
   a stored identity hash \(h(R)\) that names the committed index state
   it stands for. With any later persistent delta layers it forms the
   project's *persistent closure*
-  ([Layers §3](/docs/design/layers/#kinds-and-lifetimes)).
+  ([Layers §3](/docs/design/layers/#kinds-and-lifetimes)), which is the
+  one page that writes it \(R_p\), having to tell the initial layer from
+  the deltas beside it.
 - **ephemeral layer** — a layer materialised by a verb during a query,
   holding that command's output. It lives in the same tables as the
   persistent index and is read by the same SQL, but its lifetime is that
@@ -194,11 +236,13 @@ page that owns it.
   populate reads, one of the set \(E_t(R)\) — keyed by that layer's id.
   Root and layer shards together are the **input shards**: the shards
   whose parent is the very input they read.
-- **selection shard** — \(S_c\), the per-command node parented on the
+- **selection shard** — \(S_c(R)\), the per-command node parented on the
   previous statement's tip; it holds everything the command builds from
   earlier statements' selections, and marks the chain position when
   empty. A statement's selection-shard-bearing commands contribute
-  *sibling* selection shards.
+  *sibling* selection shards. The root is written only where several
+  projects are in view, so [Layer Keys](/docs/design/layer-keys) — which
+  works inside one — has it as \(S_c\).
 - **tip** — \(\mathrm{tip}_t(R)\), the last layer of statement \(t\)'s
   materialisation in command pre-order: the layer the next statement's
   selection shards hang off ([Layers §5](/docs/design/layers/#materialisations)).

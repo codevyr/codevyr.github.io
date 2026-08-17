@@ -13,14 +13,20 @@ actually arise in.
 
 ## 1. The product {#product}
 
-A query \(Q\) returns a graph: symbols, and the reference and
-containment edges among them.
+A query \(Q\) returns a graph: the symbol instances that survive it, and
+the reference and containment edges among them.
 
 $$\mathrm{askl}(Q) \;=\; (N, E)$$
 
-\(E\) is derived — the index's edges restricted to the nodes that
-survive — so the whole question is which nodes \(N\) a query selects,
-and how to avoid computing them twice.
+\(N\) is a set of **instances** throughout this page — the same objects
+the \(N_c\) of §3 hold, closed per symbol, so that no instance survives
+without the others of its symbol
+([semantics §7](/docs/design/semantics/#selections)). A reader sees them
+grouped by symbol, and the evidence conditions of §3 are matched at
+symbol level, but every set below is a set of instances. \(E\) is derived
+— the index's edges restricted to the nodes that survive — so the whole
+question is which nodes \(N\) a query selects, and how to avoid
+computing them twice.
 
 ## 2. Nodes decompose along the syntax {#decomposition}
 
@@ -43,17 +49,20 @@ own predicate \(P(c)\) matches, filters and selector branches together,
 computable from the command alone
 ([semantics §6](/docs/design/semantics/#denotation)). Selection is
 narrower than that: a row survives only if it also has evidence with
-what \(c\)'s neighbours selected, where \(E_{\mathrm{rel}}\) is the
-**evidence relation** — a reference or containment edge, matched per
-symbol ([semantics §7](/docs/design/semantics/#selections)). For every
-constraining neighbour \(n\) of \(c\) (its parent, and each of its
-children):
+what \(c\)'s constraining neighbours selected. Those neighbours come in
+*groups* — the parent alone, the strong children together, each label
+provider alone — collected as \(\mathrm{Cons}(c)\), and groups conjoin
+where a group's members disjoin, so `func { "a" ; "b" }` asks for a call
+to either. Writing \(\mathrm{sym}(x)\) for the symbol an instance \(x\)
+belongs to and \(\hat{E}_{c,n}\) for the **evidence relation** between
+symbols — a reference or a containment edge
+([semantics §7](/docs/design/semantics/#selections)):
 
-$$N_c \;=\; \{\, x \in D(c) \;:\; \forall n.\ \exists\, y \in N_n.\ (x, y) \in E_{\mathrm{rel}} \,\}$$
+$$N_c \;=\; \Bigl\{\, x \in D(c) \;:\; \forall\, G \in \mathrm{Cons}(c).\ \exists\, n \in G.\ \exists\, y \in N_n.\ \bigl(\mathrm{sym}(x),\, \mathrm{sym}(y)\bigr) \in \hat{E}_{c,n} \,\Bigr\}$$
 
 Each \(N_c\) is defined in terms of its neighbours' \(N_n\), which are
 defined in terms of theirs. The system is mutually recursive, and its
-answer is a **fixpoint**: start from the denotations and narrow, a
+answer is its **greatest** fixpoint: start above it and narrow, a
 command at a time, until nothing changes. Running that loop is
 [evaluating the fixpoint](/docs/design/evaluation); it terminates
 because every step only removes rows.
@@ -63,9 +72,11 @@ because every step only removes rows.
 The natural thing to cache is \(N_c\) — a command's answer. It is also
 the one thing that cannot be named cheaply. \(N_c\) is a joint
 function of the whole system: add a filter to a *sibling's* child and
-the fixpoint may move, so any honest key for \(N_c\) would have to
-name the entire query. A cache keyed on less would serve one query's
-answer to another.
+the fixpoint may move, so an honest key for \(N_c\) would have to name
+every command a constraint can reach it from — \(c\)'s whole connected
+component — and, because the reads that fixpoint starts from run under
+whatever earlier statements made visible (§6), every statement before it
+as well. A cache keyed on less would serve one query's answer to another.
 
 So selections are not cached. Something upstream of them is.
 
@@ -79,11 +90,18 @@ conditions:
 
 $$N_c \;\subseteq\; \llbracket\, P(c) \wedge \mathrm{nb}(c) \,\rrbracket \;\subseteq\; D(c)$$
 
-This is the object worth caching, for a reason the fixpoint lacks: the
-read's predicate mentions only \(c\) and its immediate neighbourhood. Edit one
-statement of a long query and every other command's read is
-*byte-identical* — same SQL, same binds — so it hits the in-RAM result
-cache untouched. Two consequences follow. Interactive editing gets
+The left inclusion is a hypothesis rather than an observation: the
+fixpoint is approached from above, so a read may stand in for a
+denotation as the starting point only because it still contains \(N_c\)
+([semantics §7](/docs/design/semantics/#selections)). The right one is
+what makes the read cacheable, for a reason the fixpoint lacks: the
+read's predicate mentions only \(c\) and its immediate neighbourhood.
+Edit one statement of a long query and every command whose visibility
+the edit leaves untouched reads *byte-identically* — same SQL, same
+binds — so it hits the in-RAM result cache without being recomputed.
+Which commands those are is §6's subject, and it is not all of them: an
+edit that changes what a later statement can see changes that
+statement's reads too. Two consequences follow. Interactive editing gets
 cheap, which is what the cache is for; and it pays to make \(P(c)\)
 *tight* rather than merely correct, which is what
 the [planner](/docs/design/planning) does by measuring cardinality with
@@ -109,12 +127,13 @@ So look at what the materialising step itself produces. Four symbols,
 each owned elsewhere: \(U_c\) is the command's combined populate
 ([semantics §4](/docs/design/semantics/#content-verbs-union)); \(C(\ell)\)
 is the content stored on layer \(\ell\), and \(\Lambda_{t-1}\) the slice
-visible before statement \(t\)
-([shards §1](/docs/design/shards/#notation)); and \(g_c\) builds rows
-from each output in \(O_c\), the earlier statements' selections the
-command references by label
+visible before statement \(t\) — which from here on is *the statement
+\(c\) belongs to*, with one project in view so that the per-project root
+stays silent ([shards §1](/docs/design/shards/#notation)); and \(g_c\)
+builds rows from each output in \(O_c\), the earlier statements'
+selections the command references by label
 ([shards §3](/docs/design/shards/#node-kinds)). Command \(c\)'s
-contribution to the materialisation is then
+contribution to the materialisation of statement \(t\) is then
 
 $$M_c \;=\; U_c\Bigl(\bigcup_{\ell \,\in\, \Lambda_{t-1}} C(\ell)\Bigr) \;\cup \bigcup_{o \,\in\, O_c} g_c(o)$$
 
