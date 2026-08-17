@@ -54,27 +54,42 @@ the symbol instances satisfying it, drawn from \(\mathrm{Inst}\), the
 universe of instances the query can see
 ([semantics §6](/docs/design/semantics/#denotation)). Each nested
 substatement also carries a **relationship** to its parent,
-\(\mathrm{rel}(c) \subseteq \{\mathrm{REFS}, \mathrm{HAS}\}\), naming which
-edge kinds relate their instances (the `{ }` default is the union
-\(\mathrm{REFS} \cup \mathrm{HAS}\): either kind counts).
+\(\mathrm{rel}(c) \subseteq \{\mathrm{REFS}, \mathrm{HAS}\}\), a set of
+**edge kinds**: \(\mathrm{REFS}\) is a reference edge, one symbol naming
+another; \(\mathrm{HAS}\) is a containment edge, one symbol enclosing
+another. The `{ }` default is both kinds, and an edge of either then
+counts.
 
 **Composition.** Execution does not return \(D(c)\); it returns the
 **selection** \(N_c \subseteq D(c)\), the fixpoint of the worklist
 propagation in which neighbouring substatements constrain each other
-through **edge evidence** ([semantics §7](/docs/design/semantics/#selections)):
-for a command \(c\) with neighbour \(n\),
+through **edge evidence**
+([semantics §7](/docs/design/semantics/#selections)). Write
+\(\mathrm{sym}(x)\) for the symbol an instance \(x\) belongs to, and
+\(\hat{E}_{c,n}\) for the evidence relation between \(c\)'s symbols and
+neighbour \(n\)'s — the edges of the kinds their nesting asks for,
+oriented from \(c\)'s side, so that \(\hat{E}_{c,n}\) is the union of its
+per-kind parts \(\hat{E}^{\mathrm{rel}}_{c,n}\). Constraining neighbours
+come in **groups**
+(the parent alone; all strong children together; each `use()` provider
+alone), and a row of \(c\) survives only with evidence to some member of
+every group; weak neighbours join no group and impose nothing
+([Weakness and Bindness](/docs/design/semantics/#weakness-and-bindness)).
+This page uses one direction of that equation, once per group \(G\):
 
-$$N_c \;=\; \{\, x \in D(c) \;:\; \exists\, y \in N_n.\; (x,y) \in E_{\mathrm{rel}} \,\}$$
+$$N_c \;\subseteq\; \bigl\{\, x \in D(c) \;:\; \exists\, n \in G.\; \exists\, y \in N_n.\; \bigl(\mathrm{sym}(x),\, \mathrm{sym}(y)\bigr) \in \hat{E}_{c,n} \,\bigr\}$$
 
-(for constraining neighbours; weak neighbours impose no such condition —
-see [Weakness and Bindness](/docs/design/semantics/#weakness-and-bindness)).
-Here \(E_{\mathrm{rel}}\) is the evidence relation: a REFS edge or a
-containment edge, matched **per symbol** — if any instance of a symbol is
-evidenced, all of that symbol's instances survive.
+Each group is thus a necessary condition on \(N_c\), and a *single*
+neighbour is one only when it forms a group by itself — which the
+refinement below has to respect. Evidence is matched per symbol, since
+only \(\mathrm{sym}(x)\) occurs on the left; §5's roles are lifted to
+symbol level for exactly that reason.
 
 **Monotonicity.** The worklist only ever narrows: at every intermediate
 stage the current selection of any substatement is a superset of \(N_c\).
-This is the single fact every argument below leans on.
+That is a statement about the worklist's own stages; the probe
+resolutions below are a separate sequence, and §6 argues about them by
+induction on the wave that produced them.
 
 The planning problem: decide, per substatement, whether to materialise
 \(D(c)\) independently, derive it from neighbours, and in what order —
@@ -121,66 +136,125 @@ concurrently. Those below the cap become **resolved**, holding
 ## 5. Refinement {#refinement}
 
 **Roles.** Write \(\mathrm{res}(\cdot)\) for a substatement's resolved id
-set. For a resolved neighbour \(n\) of a capped (or derive-only) command
-\(c\), a **role** is the semi-join image of \(\mathrm{res}(n)\) under one
-relationship, lifted to symbol level:
+set and \(\mathrm{inst}(I)\) for the instances a set \(I\) of ids names —
+the coercion that lets an id list stand where §2 speaks of instances. For
+an arbitrary set \(S \subseteq \mathrm{Inst}\) and one edge kind
+\(\mathrm{rel}\), the **role** \(\rho_{\mathrm{rel}}(S)\) is the
+semi-join image of \(S\) under that kind, taken in the direction that
+puts the candidate on the left and lifted to symbol level:
 
-$$\rho_{\mathrm{rel}}(\mathrm{res}(n)) \;=\; \{\, x \in \mathrm{Inst} \;:\; \mathrm{sym}(x) \in \mathrm{rel\text{-}image}(\mathrm{res}(n)) \,\}$$
+$$\rho_{\mathrm{rel}}(S) \;=\; \{\, x \in \mathrm{Inst} \;:\; \mathrm{sym}(x) \in \mathrm{rel\text{-}image}(S) \,\}$$
 
-Here \(\mathrm{sym}(x)\) is the symbol that instance \(x\) belongs to, and
-\(\mathrm{rel\text{-}image}(X)\) is the set of symbols joined to \(X\) by
-a \(\mathrm{rel}\) edge. The lifting matters: because evidence matches per
-symbol (§2), roles must too, or a refined set could drop a co-instance
-the worklist would have kept.
+where \(\mathrm{rel\text{-}image}(S)\) is the set of symbols joined by a
+\(\mathrm{rel}\) edge to the symbol of some member of \(S\). The lifting
+matters: because evidence matches per symbol (§2), roles must too, or a
+refined set could drop a co-instance the worklist would have kept. Two
+properties carry the soundness argument of §6.
 
-**Waves.** Command \(c\) re-probes the intersection
-\(D(c) \cap \rho_{\mathrm{rel}}(\mathrm{res}(n))\) — its own denotation,
-narrowed to what the neighbour can reach. When
-\(\mathrm{rel} = \mathrm{REFS} \cup \mathrm{HAS}\), a single conjunctive
-role would be unsound (the union semantics), so the neighbour contributes
-one probe per relationship **branch**; \(c\) resolves iff every branch
-combination resolves, and its set is the union of the combination results —
-exact under the union semantics. Waves iterate to a fixpoint: a
-substatement resolved in wave \(i\) can serve as the binding for its other
-neighbours in wave \(i+1\), so constraint flows across the tree.
+- **Domination.** For every \(S\) and every edge kind, the instances that
+  something in \(S\) evidences *through that kind* are inside the role:
+  \((\hat{E}^{\mathrm{rel}}_{c,n})^{-1}[S] \subseteq \rho_{\mathrm{rel}}(S)\),
+  writing
+  \((\hat{E}^{\mathrm{rel}}_{c,n})^{-1}[S] = \{\, x \in \mathrm{Inst} : \exists\, y \in S.\; (\mathrm{sym}(x), \mathrm{sym}(y)) \in \hat{E}^{\mathrm{rel}}_{c,n} \,\}\)
+  for the inverse image of \(S\) under evidence of that kind.
+  The role reads the same edges at the same symbol level and adds none of
+  the conditions a read may impose on top (direct-only containment, the
+  result budget), so it can only be the more permissive of the two.
+- **Monotonicity.** \(S \subseteq S'\) implies
+  \(\rho_{\mathrm{rel}}(S) \subseteq \rho_{\mathrm{rel}}(S')\), the image
+  being an existential over \(S\).
+
+**Waves.** For a resolved neighbour \(n\), command \(c\) re-probes the
+intersection \(D(c) \cap \rho_{\mathrm{rel}}(\mathrm{inst}(\mathrm{res}(n)))\)
+— its own denotation, narrowed to what the neighbour can reach. When the
+relationship carries both edge kinds, one conjunctive role would be
+unsound (an edge of *either* kind is evidence), so the neighbour
+contributes one probe per kind — a **branch** — and \(c\) resolves iff
+every branch resolves, its set being the union of the branch results.
+With one neighbour bound at a time (below), a branch *combination* is a
+single branch; the machinery is the general one, taking one branch per
+bound neighbour and capping the number of combinations, a candidate with
+a wider fan-out staying on the predicate path. Because the branches are
+unioned, a resolved set can hold more than \(k\) ids: the cap bounds each
+branch, not their union. Waves iterate to a fixpoint: a substatement
+resolved in wave \(i\) can serve as the binding for its other neighbours
+in wave \(i+1\), so constraint flows across the tree.
 
 **Binding choice.** Each candidate binds only its **smallest** resolved
 neighbour, re-probing only when a strictly smaller binding appears: a
 role's evaluation cost scales with the bound set, and a broad neighbour can
 cost more to conjoin than it narrows. The refined result is a larger — still
-sound — superset; the worklist narrows the rest.
+sound — superset; the worklist narrows the rest. Which neighbour may be
+bound is not free, though: refining against one neighbour is refining
+against a condition \(N_c\) must satisfy, so that neighbour has to form a
+group of §2 by itself — the parent, or an only strong child. Several
+strong children share a single group, their evidence disjoins, and a role
+built from one of them would rule out rows the other one evidences.
 
 ## 6. Properties {#properties}
 
-**Theorem 1 (probe exactness).** A wave-0 resolution equals
-\(\mathrm{ids}(D(c))\); a refinement resolution equals
-\(\mathrm{ids}\bigl(D(c) \cap \rho_{\mathrm{rel}}(\mathrm{res}(n))\bigr)\).
+**Theorem 1 (probe exactness).** Suppose the probed predicate is
+**fusable** — all of it goes into the one database statement the cap
+truncates, so nothing is filtered after the limit — and the visible layer
+set is the same when the probe runs and when the read runs. Then a wave-0
+resolution equals \(\mathrm{ids}(D(c))\), and a refinement resolution
+equals
+\(\mathrm{ids}\bigl(D(c) \cap \rho_{\mathrm{rel}}(\mathrm{inst}(\mathrm{res}(n)))\bigr)\).
 In both cases the cap never truncated the returned set (it fired only in
 the discarded Capped case), so resolutions are deterministic and complete
 for their predicate.
 
-**Theorem 2 (soundness).** Every resolved set is a superset of the
-selection: \(N_c \subseteq \mathrm{res}(c)\).
+The first hypothesis is why eligibility asks for a single-query predicate
+(§4): a limit applied *before* a later condition would return a truncated
+set that the condition then thins again, exact for nothing. The second is
+why probes run after layer materialisation and against the visibility the
+read will use — \(\mathrm{Inst}\) must not move underneath an id list.
 
-*Proof sketch.* Wave 0: \(N_c \subseteq D(c)\) by definition. Refinement:
-let \(x \in N_c\). Then \(x \in D(c)\), and by the composition equation of
-§2 there is \(y \in N_n\) with \((x, y) \in E_{\mathrm{rel}}\). By
-monotonicity \(N_n \subseteq \mathrm{res}(n)\), and the role is
-at least as permissive as evidence
-(\(E_{\mathrm{rel}} \subseteq \rho_{\mathrm{rel}}\) — both are
-symbol-level, and \(\rho\) carries no direct-only or budget conditions), so
-\(x \in \rho_{\mathrm{rel}}(\mathrm{res}(n))\), hence
-\(x \in D(c) \cap \rho_{\mathrm{rel}}(\mathrm{res}(n))\). For union
-relationships, \(x\) satisfies at least one branch in every combination, so
-it survives the union of combination results. ∎
+**Theorem 2 (soundness).** Every resolved set is a superset of the
+selection: \(N_c \subseteq \mathrm{inst}(\mathrm{res}(c))\), provided each
+binding it was obtained from is a neighbour that forms a group of §2 by
+itself.
+
+Strength of the bound neighbour comes free, by an invariant the engine
+maintains: an anchored command is never weak
+([semantics §9.2](/docs/design/semantics/#bindness)), and only anchored
+substatements probe (§3), so every resolved neighbour is strong and the
+group it sits in is a genuine conjunct of the composition. What the
+binding rule must supply is that the group is a singleton (§5).
+
+*Proof sketch, by induction on the wave in which a set was resolved.*
+Wave 0: \(\mathrm{res}(c) = \mathrm{ids}(D(c))\) by Theorem 1, and
+\(N_c \subseteq D(c)\) by definition. Wave \(i+1\): let \(c\) resolve by
+binding \(n\), itself resolved in some wave \(\le i\), and take
+\(x \in N_c\). Then \(x \in D(c)\), and since \(\{n\}\) is a group, §2
+gives \(y \in N_n\) with
+\(\bigl(\mathrm{sym}(x), \mathrm{sym}(y)\bigr) \in \hat{E}_{c,n}\). That
+relation is the union of its per-kind parts, so the witnessing edge has
+some kind \(\mathrm{rel}\), and
+\(x \in (\hat{E}^{\mathrm{rel}}_{c,n})^{-1}[N_n]\). The induction
+hypothesis gives \(N_n \subseteq \mathrm{inst}(\mathrm{res}(n))\), so
+domination followed by monotonicity (§5) yields
+
+$$x \;\in\; (\hat{E}^{\mathrm{rel}}_{c,n})^{-1}[N_n] \;\subseteq\; \rho_{\mathrm{rel}}(N_n) \;\subseteq\; \rho_{\mathrm{rel}}\bigl(\mathrm{inst}(\mathrm{res}(n))\bigr)$$
+
+and hence \(x \in D(c) \cap \rho_{\mathrm{rel}}(\mathrm{inst}(\mathrm{res}(n)))\),
+which by Theorem 1 is what that kind's branch enumerates. So there is a
+combination — with one neighbour bound, the single branch for
+\(\mathrm{rel}\) — all of whose branches \(x\) satisfies, and \(c\)'s
+resolved set, being the union over combinations, keeps \(x\). ∎
 
 Soundness is exactly the contract both consumers (§7) require: a resolved
 set is *exact in composition* — it may exceed \(N_c\), never undershoot it.
 
-**Theorem 3 (termination).** Each wave either resolves at least one
-substatement or is empty; candidates re-probe only on strictly
-smaller bindings; hence the loop takes at most
-\(\lvert\text{substatements}\rvert\) waves.
+**Theorem 3 (termination).** The refinement loop runs at most
+\(\lvert\text{substatements}\rvert\) waves. The variant is the number of
+**unresolved** substatements, and what makes it fall is permanence: a
+resolved substatement keeps the set it resolved to, is never re-probed,
+and never returns to being capped. So a wave that resolves anything
+lowers the count for good, a wave that resolves nothing ends the loop,
+and the count starts at most at the number of substatements. (The
+smallest-binding rule of §5 bounds how often one *candidate* re-probes
+within that; it is an economy, and no part of this argument.)
 
 ## 7. Consumers of resolved sets {#consumers}
 
