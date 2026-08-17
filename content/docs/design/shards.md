@@ -257,10 +257,15 @@ Each part is one node, and the three differ exactly as the three
 forces predict:
 
 - The **root shard** \(\mathrm{Sh}_c(R)\) holds the expensive populate
-  over the committed bulk. Its key names the
-  corpus and the command, nothing else, so no ephemeral change can
-  reach it; only a mutation of the persistent index invalidates it
-  (assumption A3 in §4).
+  over the committed bulk. Its key names the corpus and the command,
+  so the *visibility chain* cannot reach it: adding an ephemeral layer
+  upstream leaves it untouched, and only a mutation of the persistent
+  index invalidates it (assumption A3 in §4). One upstream *result*
+  can reach it — a command whose populate fuses its container's scope
+  folds that container's resolved ids into \(H(c)\)
+  ([Keys](/docs/design/layer-keys/#verb-input-hashes)) — which costs a
+  distinct root shard per distinct binding, and is the price of
+  scanning only the container's byte ranges instead of the corpus.
 - A **layer shard** \(\mathrm{Sh}_c(\ell)\) holds the same populate over
   one light layer, keyed by that layer's
   identity: of the context, only \(\ell\) itself. A layer appearing
@@ -395,8 +400,8 @@ references no outputs (\(O_c = \emptyset\)) — the pure content verb,
 and the case §1's borrowed \(f_c\) describes.
 
 Second, the reuse the whole design exists for. \(\kappa\bigl(\mathrm{Sh}_c(R)\bigr)\)
-mentions no ephemeral layer, so **one** root shard serves every
-upstream context — the expensive populate is run once and shared for
+names no ephemeral layer, so **one** root shard serves every
+upstream context that binds it the same way — the expensive populate is run once and shared for
 as long as the corpus stands. \(\kappa\bigl(\mathrm{Sh}_c(\ell)\bigr)\)
 mentions nothing of the context but \(\ell\), so its layer shard is
 shared by every context containing \(\ell\). Only selection shards are
@@ -527,8 +532,8 @@ maintenance**, where a stored result stays usable as its inputs change,
 and where the decomposition that makes maintenance affordable runs over
 the input relations. What seems less usual here is the axis of the split:
 one operator's output is decomposed along a *visibility chain*, and each
-part is keyed so that a volatile input cannot invalidate a stable one —
-\(\kappa(\mathrm{Sh}_c(R))\) mentions no ephemeral layer at all. Where
+part is keyed so that a volatile input cannot invalidate a stable one:
+the visibility chain never enters \(\kappa(\mathrm{Sh}_c(R))\). Where
 the carve stops is then an economic question rather than a structural one
 (§3), which is why the selection shard is a single node rather than one
 per output.
