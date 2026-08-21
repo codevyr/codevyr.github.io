@@ -21,8 +21,9 @@ the language.
 Before any of the design questions, it helps to know what actually
 runs. A query is a sequence of **statements**, and statements are the
 only time axis the language has: they run in source order, one after
-another, and nesting inside a statement expresses constraint rather
-than sequence.
+another. Nesting inside a statement is the other axis: it states what
+the nested parts must have evidence of in each other, and the whole
+statement resolves together.
 
 **Parsing** turns the text into a forest of substatements. Each one
 carries a **command** — its bag of verbs, folded in source order into a
@@ -64,10 +65,9 @@ Every part of that pipeline is there for a reason, and the reasons are
 answers to three questions that a graph-returning query language cannot
 avoid. Each one creates the next.
 
-1. **What does a query mean?** Nesting is constraint, not sequence, so
-   neighbouring parts of a query constrain each other and no part can
-   be evaluated on its own. The answer is a fixpoint
-   ([Queries and their Meaning](/docs/design/semantics)).
+1. **What does a query mean?** Neighbouring parts of a query constrain
+   each other, so no part can be evaluated on its own. The answer is a
+   fixpoint ([Queries and their Meaning](/docs/design/semantics)).
 2. **How is it evaluated without being slow?** The fixpoint has to be
    computed over an index of millions of rows, and syntax cannot
    predict how many rows a pattern will match — so the engine measures
@@ -75,9 +75,9 @@ avoid. Each one creates the next.
    [Planning from Measured Cardinality](/docs/design/planning)).
 3. **How is work reused across queries?** An interactive session reruns
    near-identical queries, so the expensive parts must survive from one
-   to the next. Reads are one kind of work and the rows a command
-   *produces* are another, and the second cannot be reused until it has
-   been partitioned along what it reads. That partition is the
+   to the next. There are two kinds of work: what a command reads, and
+   the rows it *produces*. Production becomes reusable once it is
+   partitioned along the inputs it reads, and that partition is the
    chapter's main contribution
    ([Partitioning a Materialisation](/docs/design/shards)).
 
@@ -97,12 +97,11 @@ page that owns it.
 - **query** — the whole parsed input: a sequence of statements.
 - **statement** — one whole top-level unit of the query: a command, its
   scope, and everything nested under it. `"foo" { "bar" }` is one
-  statement. Statements are the query's only time axis (`;` or a
-  newline separates them; nesting never sequences), and a `@label` may
-  only be referenced from a *later* statement — same-statement or
-  forward references are parse errors. Top-level statements impose
-  nothing on each other: their selections are simply unioned into the
-  query's nodes
+  statement. Statements are the query's only time axis; `;` or a
+  newline separates them. A `@label` may be referenced only from a
+  *later* statement — same-statement and forward references are parse
+  errors. Top-level statements are independent: their selections are
+  unioned into the query's nodes
   ([derivation §2](/docs/design/derivation/#decomposition)).
 - **substatement** — any command-plus-scope node within a statement, at
   any depth. By convention a statement is a substatement of itself, so
@@ -111,12 +110,11 @@ page that owns it.
   corresponds to *substatement*.
 - **scope** — the `{ }` block of a substatement, holding its children.
   Sibling children **conjoin**: the parent survives only with evidence to
-  each of them, so `func { "a" ; "b" }` keeps the callers of both and an
+  each of them, so `func { "a" ; "b" }` keeps the callers of both, and an
   empty child empties the parent
-  ([semantics §7](/docs/design/semantics/#selections)). The disjunction is
-  spelled inside one command instead — `func { "a" "b" }` is a single
-  child with two selector branches. A `;` between top-level statements is
-  a third thing again: a separator, not a condition.
+  ([semantics §7](/docs/design/semantics/#selections)). Disjunction is
+  spelled inside one command: `func { "a" "b" }` is a single child with
+  two selector branches. At top level, `;` separates statements.
 - **command** — the verb bag of one substatement, assembled by folding
   its verbs in source order; a later verb may override an earlier
   same-tagged one ([Queries and their Meaning](/docs/design/semantics)).
@@ -130,11 +128,10 @@ page that owns it.
   tree of leaves under And/Or/Not nodes, and "the command's filter" means
   that composite
   ([Layer Keys §1](/docs/design/layer-keys/#filter-predicate)).
-- **selector branch** — an alternative way *into* the index that a
-  command offers, rather than a narrowing of one: a name pattern
-  (`"foo"`, `func("open")`), a `search` match, a `loc` position. A
-  command's branches are OR-ed with one another and conjoined with its
-  filters, and the result is its predicate \(P(c)\)
+- **selector branch** — a way *into* the index that a command offers: a
+  name pattern (`"foo"`, `func("open")`), a `search` match, a `loc`
+  position. A command's branches are OR-ed with one another and
+  conjoined with its filters, and the result is its predicate \(P(c)\)
   ([semantics §6](/docs/design/semantics/#denotation)). Branches disjoin
   where filters conjoin, so which of the two slots a condition lands in
   decides whether adding it widens or narrows.
@@ -142,14 +139,15 @@ page that owns it.
   the unit of the anchor rule and of bindness.
 - **anchor** — a verb that can produce instances on its own: a name
   pattern, a name filter, `search(...)`, `loc(...)`, a layer literal, or
-  `select`. Everything else only narrows what an anchor produced, which
-  is why a binding component without one is rejected rather than
-  answered ([semantics §9.2](/docs/design/semantics/#bindness)).
+  `select`. Every other verb narrows what an anchor produced, so a
+  binding component without one has nothing to narrow and is rejected
+  before the query runs
+  ([semantics §9.2](/docs/design/semantics/#bindness)).
 - **weakness** — whether a command's selection constrains its
   neighbours. A weak substatement is a display echo: it contributes
-  nodes and edges, but an empty match does not eliminate its parent or
-  children ([semantics §9.1](/docs/design/semantics/#weakness)). An
-  anchored command is never weak
+  nodes and edges, and its parent and children survive whether or not it
+  matches ([semantics §9.1](/docs/design/semantics/#weakness)). An
+  anchored command is always strong
   ([semantics §9.3](/docs/design/semantics/#select-bridges)).
 - **bindness** — whether a *component* demands instances at all. A
   binding component wants results and must be satisfiable; a
@@ -160,16 +158,16 @@ page that owns it.
 
 - **denotation** — \(D(c)\), what command \(c\)'s own predicate
   \(P(c)\) — its filters and its selector branches — picks out of the
-  visible instances. It is computable from the command alone, which is
-  what distinguishes it from a selection
+  visible instances. It is computable from the command alone, before any
+  neighbour has been consulted
   ([semantics §6](/docs/design/semantics/#denotation)).
 - **selection** — \(N_c\), the instances a command holds once the
   worklist fixpoint has run, closed per symbol; \(N_s\) for a whole
   statement, \(N\) for the whole query
   ([semantics §7](/docs/design/semantics/#selections)). The
   referenced outputs \(O_c\) of a command are earlier statements'
-  selections. Distinct from the selection *function* \(\sigma_{F_c}\),
-  which filters a row set.
+  selections. (The selection *function* \(\sigma_{F_c}\) is
+  relational-algebra notation for filtering a row set.)
 - **evidence relation** — \(\hat{E}_{c,n}\), the edge kind that the
   nesting between a command and a neighbour asks for, read as a relation
   between *symbols* and oriented from \(c\) towards \(n\); reversing the
@@ -181,23 +179,23 @@ page that owns it.
   slice ([semantics §1](/docs/design/semantics/#what-a-verb-denotes)).
   The engine fills a layer's rows by running populates; \(U_c\) is a
   command's populates unioned.
-- **wave** — one probe iteration of the cost-based executor (wave 0 plus
-  the refinement waves), distinct from a materialisation.
+- **wave** — one probe iteration of the cost-based executor: wave 0 plus
+  the refinement waves, all within a single statement's probe phase.
 - **probe** — one capped question about a set of instances: *are there at
   most \(k\) of them, and if so which?* It is an id fetch stopped after
   \(k+1\) rows, so a single database statement answers both halves
   ([planning §4](/docs/design/planning/#probes)).
 - **resolved**, **capped** — a probe's two outcomes. A **resolved**
-  substatement holds the exact ids of what it probed and never evaluates
-  that predicate again; a **capped** one hit the cap, its fetched ids are
-  discarded, and it stays predicate-driven. Only anchored substatements
+  substatement holds the exact ids of what it probed and reuses them in
+  place of that predicate; a **capped** one hit the cap, its fetched ids
+  are discarded, and it stays predicate-driven. Only anchored substatements
   probe, so a resolved neighbour is always a strong one.
 - **role** — the semi-join image of a resolved neighbour's ids under one
   relationship, lifted to symbol level: what that neighbour can reach,
   conjoined into a substatement's predicate to narrow it before it reads
-  ([planning §5](/docs/design/planning/#refinement)). Not to be confused
-  with the worklist's *dependency* roles — child, parent, user — which
-  name the direction a notification travels
+  ([planning §5](/docs/design/planning/#refinement)). The worklist's
+  *dependency* roles — child, parent, user — are a separate use of the
+  word: they name the direction a notification travels
   ([evaluation §2.2](/docs/design/evaluation/#run-worklist)).
 - **REFS**, **HAS** — the two edge kinds a nesting can ask for: a
   **REFS** edge is a reference (one symbol calls or uses another), a
@@ -211,7 +209,7 @@ page that owns it.
 - **layer** — a labelled set of graph rows: one `index.layers` row plus
   every object, symbol, instance, and reference tagged with its id.
   Every row belongs to exactly one layer, and a query sees a flat set of
-  visible layer ids rather than any structure over them
+  visible layer ids
   ([Layers §2](/docs/design/layers/#what-a-layer-is)).
 - **root layer** — \(R\), a project's initial persistent layer, carrying
   a stored identity hash \(h(R)\) that names the committed index state
@@ -222,8 +220,8 @@ page that owns it.
   the deltas beside it.
 - **ephemeral layer** — a layer materialised by a verb during a query,
   holding that command's output. It lives in the same tables as the
-  persistent index and is read by the same SQL, but its lifetime is that
-  of a cache entry — TTL and LRU, not permanence
+  persistent index and is read by the same SQL; its lifetime is that of a
+  cache entry, governed by TTL and LRU
   ([Layers §3](/docs/design/layers/#kinds-and-lifetimes),
   [Caching](/docs/design/caching)).
 - **materialisation** — the set of layers one layer-creating statement
@@ -261,8 +259,8 @@ page that owns it.
   ([shards §5](/docs/design/shards/#worked-example)).
 - **command hash** — \(H(c)\), a canonical hash summarising a command,
   so that equal hashes mean semantically identical commands. It
-  names every input the command's populates read *except* the layer
-  content they are aimed at, which the node keys name instead
+  names every input the command's populates read, up to but not
+  including the layer content they are aimed at; the node keys name that
   ([Layer Keys §4](/docs/design/layer-keys/#command-hash)).
 
 ## The pages, in reading order {#the-pages}
@@ -295,8 +293,8 @@ obvious; the last for one verb end to end, in SQL and in milliseconds.
   intermediate results are rows at all, how a query decides what it can
   see, and the isolation guarantee.
 - **[Partitioning a Materialisation](/docs/design/shards)** — the
-  contribution: production carved along its dependencies, so a volatile
-  input cannot invalidate expensive work.
+  contribution: production carved along its dependencies, so an
+  expensive result survives a change to a volatile input.
 - **[Layer Keys and Hashing](/docs/design/layer-keys)** — one rule at
   byte level: name what a populate reads, and nothing more.
 - **[Caching](/docs/design/caching)** — the two tiers, and the
