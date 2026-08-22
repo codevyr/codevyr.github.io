@@ -212,6 +212,9 @@ their matches, constrained by the statement's filters. Inside a scope that is ex
 the contrast with `;`: `X { A B }` is one child whose selectors disjoin, `X { A ; B }`
 two children that conjoin
 ([Sibling Statements in a Scope](/docs/syntax/#sibling-statements-in-a-scope)).
+The disjunction can also be written explicitly — `"open" or "close"` — which
+additionally merges the operands into ONE branch with a single no-match
+warning; see [Boolean Operators](#boolean-operators).
 
 Every query group — a *component*: one or more top-level statements with
 their nested scopes, joined by label references — must contain at least one
@@ -226,8 +229,9 @@ own and is rejected with a hint instead of silently returning an empty result.
 
 | Verb | Description |
 |------|-------------|
-| `ignore("pattern")` | Exclude symbols matching the pattern |
+| `ignore("pattern")` | Exclude symbols matching the pattern (alias for `not "pattern"`) |
 | `project("name")` | Only include symbols from a specific project |
+| `package("path")` | Only include symbols strictly under a package path |
 | `filter("kind", "value")` | Generic filter (see below) |
 | `func` (no name) | Only include function symbols |
 | `type` (no name) | Only include type symbols |
@@ -271,6 +275,54 @@ own and is rejected with a hint instead of silently returning an empty result.
 > `{ }` scopes and commands with only filters are non-constraining
 > *echoes* by default, and `select` is what makes a command constraining.
 > See [Weakness and Bindness](/docs/design/semantics/#weakness-and-bindness).
+
+## Boolean Operators
+
+Predicate verbs combine with `or`, `and`, `not`, and grouping parentheses
+(adopted design: [Filter Expressions](/docs/design/filter-expressions)):
+
+```askl
+func or method { "foo" }                 /* foo, of either type */
+project("a") or project("b") { "bar" }   /* bar in either project */
+"open" or "close"                        /* one branch: either name */
+func and not g"test_*"                   /* functions except test_* */
+not (g"kl*" and package("k8s.io/klog")) "main"
+```
+
+**Precedence:** `not` binds tighter than `and`, which binds tighter than
+`or`; parentheses group. **Operators bind tighter than whitespace**: in
+`func or method "foo"`, the type group forms first and `"foo"` is a
+separate, juxtaposed selector. A bare newline still terminates the
+statement; newlines are allowed inside parentheses.
+
+**What may appear in an expression.** Predicate verbs only: name patterns,
+type selectors (bare or named), `project(...)`, `package(...)`,
+`filter(...)`, `ignore(...)`. Everything else is rejected with a hint:
+relationship verbs (`has`, `refs`, `derive`, `unnest`) and labels are not
+predicates; `search(...)`, `loc(...)`, layer literals, and `!"..."` are
+not a single predicate query; bare `any` and `select` constrain nothing.
+Inside an expression a verb contributes only its predicate — `file or dir
+{ … }` does not switch the scope to containment; write `has` explicitly.
+
+**Three rules keep expressions predictable:**
+
+- Per `or`, operands are either all anchors or all filters.  An
+  all-anchor group is ONE branch: one query and one no-match warning for
+  the whole disjunction — `"a" or "b"` says *either is fine*, while
+  juxtaposed `"a" "b"` keeps a warning per name (*each should exist*).
+- An expression without an anchor must constrain a single dimension
+  (type, project, package, or one filter kind).  Filters of different
+  dimensions conjoin by juxtaposition; for a cross-dimension disjunction,
+  split into sibling statements.
+- A filter group inherits into `{ }` scopes **as a unit**, and a child
+  statement writing the same dimension replaces it wholesale:
+  `func or method { data "x" }` finds `x` as data, not as an always-empty
+  conjunction.  Exclusions (`not ...`) accumulate instead — they narrow,
+  like `ignore`, and inherit unconditionally.
+
+> **Footgun:** `func ("foo")` — with a space — is still an argument list,
+> not `func` AND a grouped name: a `(` after a verb name binds as
+> arguments.
 
 ## Type Selectors
 
@@ -629,6 +681,11 @@ ignore("test") "main" {}        /* Ignore test functions */
 ignore("builtin") ignore("fmt") "process" {}  /* Multiple ignores */
 ```
 
+`ignore` is an alias: `not "test"` means the same as `ignore("test")`, and
+`ignore("kl*", package="k8s.io/klog")` is `not (g"kl*" and
+package("k8s.io/klog"))` — see [Boolean Operators](#boolean-operators).
+Like all exclusions, ignores accumulate and inherit into nested scopes.
+
 ### preamble (Global Configuration)
 
 Applies verbs to the global scope, affecting all subsequent statements. Use scope syntax `{ }` to group multiple preamble verbs across lines:
@@ -688,6 +745,17 @@ result.
 The two compose in the obvious way: narrowing to `linux` and then asking for
 `project("rdma-core")` returns nothing, because `rdma-core` is not visible to
 that request.
+
+### package (Package Path Filter)
+
+Keeps only symbols strictly under a package path — the positive form of
+`ignore(package=...)`. It inherits into nested scopes and composes in
+[boolean expressions](#boolean-operators).
+
+```askl
+package("k8s.io/klog") "main" {}          /* main, under k8s.io/klog only */
+not (g"kl*" and package("k8s.io/klog")) "main" {}
+```
 
 ### search (Full-text Content Search)
 
