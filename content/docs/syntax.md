@@ -636,6 +636,25 @@ Filters results to a specific project (useful in multi-project setups).
 project("myproject") "main" {}    /* Only symbols from myproject */
 ```
 
+#### Filtering a project vs. narrowing the request
+
+`project(...)` is a **predicate**: the query runs across every project the
+request can see, and keeps the rows belonging to the named one. Which projects
+are visible at all is a property of the **request**, not of the query text:
+
+- HTTP: `POST /query?projects=linux,rdma-core`
+- MCP: the `projects` argument of `askl_run`
+
+Narrowing there is the cheaper of the two — the other projects stop existing
+for that run, instead of being filtered out afterwards — and it leaves the
+query text portable across workspaces. Omit it and every indexed project is
+visible, as before. An unknown project name is an error rather than an empty
+result.
+
+The two compose in the obvious way: narrowing to `linux` and then asking for
+`project("rdma-core")` returns nothing, because `rdma-core` is not visible to
+that request.
+
 ### search (Full-text Content Search)
 
 Full-text search over the raw source bytes of every indexed file. Each occurrence of the query becomes an ephemeral symbol anchored at that byte range, and downstream verbs (`{ }`, `has`, `refs`, etc.) can compose with it just like any other selector.
