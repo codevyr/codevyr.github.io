@@ -147,8 +147,10 @@ page that owns it.
   answered ([semantics §9.2](/docs/design/semantics/#bindness)).
 - **weakness** — whether a command's selection constrains its
   neighbours. A weak substatement is a display echo: it contributes
-  nodes and edges, but an empty match does not eliminate its parent or
-  children ([semantics §9.1](/docs/design/semantics/#weakness)). An
+  nodes and edges and may seed a neighbour that has no selection, but it
+  never narrows one that has already resolved, so an empty match does
+  not eliminate its parent or children
+  ([semantics §9.1](/docs/design/semantics/#weakness)). An
   anchored command is never weak
   ([semantics §9.3](/docs/design/semantics/#select-bridges)).
 - **bindness** — whether a *component* demands instances at all. A
