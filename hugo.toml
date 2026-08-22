@@ -1,4 +1,4 @@
-baseURL = 'https://codevyr.github.io/'
+baseURL = 'https://www.codevyr.com/'
 languageCode = 'en-us'
 title = 'Codevyr - Source code analysis and visualization'
 relativeURLs = true

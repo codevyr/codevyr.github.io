@@ -628,6 +628,20 @@ Single-line syntax also works (all preamble verbs must be on the same line):
 preamble ignore("builtin") ignore("test")
 ```
 
+A preamble takes **constraints and directives, not selectors**. `project(...)`,
+`ignore(...)`, `filter(...)` — including the name filters, which scope every
+statement — bare type selectors and modifiers like `scope(...)` all belong
+here. A selecting term does not: it would be applied to every statement rather
+than selecting anything of its own, so it is rejected with an error rather than
+silently ignored.
+
+```askl
+preamble project("myproject") "main"   /* error: a preamble cannot select */
+
+preamble project("myproject")          /* write it as its own statement */
+"main"
+```
+
 ### project (Project Filter)
 
 Filters results to a specific project (useful in multi-project setups).
@@ -635,6 +649,25 @@ Filters results to a specific project (useful in multi-project setups).
 ```askl
 project("myproject") "main" {}    /* Only symbols from myproject */
 ```
+
+#### Filtering a project vs. narrowing the request
+
+`project(...)` is a **predicate**: the query runs across every project the
+request can see, and keeps the rows belonging to the named one. Which projects
+are visible at all is a property of the **request**, not of the query text:
+
+- HTTP: `POST /query?projects=linux,rdma-core`
+- MCP: the `projects` argument of `askl_run`
+
+Narrowing there is the cheaper of the two — the other projects stop existing
+for that run, instead of being filtered out afterwards — and it leaves the
+query text portable across workspaces. Omit it and every indexed project is
+visible, as before. An unknown project name is an error rather than an empty
+result.
+
+The two compose in the obvious way: narrowing to `linux` and then asking for
+`project("rdma-core")` returns nothing, because `rdma-core` is not visible to
+that request.
 
 ### search (Full-text Content Search)
 
