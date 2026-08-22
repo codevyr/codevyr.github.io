@@ -238,11 +238,13 @@ own and is rejected with a hint instead of silently returning an empty result.
 | `mod` (no name) | Only include module symbols |
 | `file` (no name) | Only include file symbols |
 | `dir` (no name) | Only include directory symbols |
+| `any` (no name) | Include every symbol type (removes an inherited type filter) |
 
 > **Note:** Type selectors like `func` behave differently based on arguments:
 > - Without a name (`func`) → **Filter** (constrains to type, **inherits to all descendants**)
 > - With a name (`func("foo")`) → **Selector** (queries matching symbols, does NOT inherit)
-> - Use `any` in a child scope to remove inherited type filtering
+> - `any` is the member of this family that constrains no type — the same two
+>   forms apply to it (`any` filters, `any("foo")` selects)
 > - `func select` enumerates all functions (budget-bounded)
 >
 > The old `filter="true"/"false"` argument was a manual query-plan toggle and has
@@ -263,7 +265,6 @@ own and is rejected with a hint instead of silently returning an empty result.
 | `preamble` | Apply subsequent verbs to the global scope |
 | `label("name")` / `@name` | Label this statement for reuse |
 | `unnest` | Include transitive children/references and all containment levels |
-| `any` | Remove inherited type filtering (match all symbol types) |
 | `!` (forced) | Force display of relationships |
 
 > **Weakness is inferred, not written.** There is no weak marker: bare
@@ -507,18 +508,37 @@ unnest { "inner_symbol" }   /* All containers at every level */
 
 > **Note:** `unnest` does **not** inherit to child scopes. Each statement that needs transitive traversal must use `unnest` explicitly.
 
-### any (Remove Inherited Type Filtering)
+### any (Any Symbol Type)
 
-The `any` modifier removes inherited type filters from parent scopes, allowing the current statement to match all symbol types regardless of what the parent specified.
+`any` is the type verb that constrains **no** type. It behaves exactly like
+`func`, `data` or `mod` — the same two forms, the same inheritance — except that
+the type it asks for is "all of them".
+
+**Bare `any`** is a filter, and its job is to cancel an inherited one:
 
 ```askl
 data { any { "bar" } }     /* Inner scope matches all types, not just data */
-func { any { "baz" } }     /* Inner scope matches all types, not just functions */
+func("main") { any }       /* Everything main references, not just functions */
 ```
 
-Without `any`, a bare type selector like `data` inherits its type filter to all descendants. Use `any` in a child scope to opt out.
+Without it, a bare type selector like `data` inherits its type filter to every
+descendant. A scope under `any` is unconstrained, so a plain `{ }` beneath it
+stays unconstrained too.
 
-> **Note:** `any` does **not** inherit to child scopes. It only affects the statement it appears on. At root level (where there is no inherited type filter), `any` is a no-op.
+**`any("name")`** is a selector, and matches that name at whatever type carries
+it — where `func("ioctl")` finds only the function, `any("ioctl")` also finds
+the macro and the struct:
+
+```askl
+any("ioctl")               /* the name, at every type */
+any(g"ioctl_*")            /* globs work here as anywhere else */
+func { any { func "bar" } } /* `any` as an intermediate hop */
+```
+
+> **Note:** bare `any` denotes the whole index, so — like bare `func` — it is a
+> constraint rather than a reason for a statement to exist: `any` on its own is
+> rejected by the [anchor rule](/docs/design/planning/#anchors). Use `any select`
+> to enumerate.
 
 ### Relationship Inheritance
 
