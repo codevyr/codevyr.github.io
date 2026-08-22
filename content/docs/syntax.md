@@ -628,6 +628,20 @@ Single-line syntax also works (all preamble verbs must be on the same line):
 preamble ignore("builtin") ignore("test")
 ```
 
+A preamble takes **constraints and directives, not selectors**. `project(...)`,
+`ignore(...)`, `filter(...)` — including the name filters, which scope every
+statement — bare type selectors and modifiers like `scope(...)` all belong
+here. A selecting term does not: it would be applied to every statement rather
+than selecting anything of its own, so it is rejected with an error rather than
+silently ignored.
+
+```askl
+preamble project("myproject") "main"   /* error: a preamble cannot select */
+
+preamble project("myproject")          /* write it as its own statement */
+"main"
+```
+
 ### project (Project Filter)
 
 Filters results to a specific project (useful in multi-project setups).
