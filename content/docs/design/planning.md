@@ -72,7 +72,9 @@ oriented from \(c\)'s side, so that \(\hat{E}_{c,n}\) is the union of its
 per-kind parts \(\hat{E}^{\mathrm{rel}}_{c,n}\). The **constraining
 neighbours** of \(c\) — its parent, each strong child, each `use()`
 provider — impose one condition each, and a row of \(c\) survives only
-with evidence to every one of them; weak neighbours constrain nothing
+with evidence to every one of them; weak neighbours impose no condition of
+their own, on either edge — though a weak neighbour may still *supply* a
+selection to a substatement that has none
 ([Weakness and Bindness](/docs/design/semantics/#weakness-and-bindness)).
 This page uses one direction of that equation, once per constraining
 neighbour \(n\):

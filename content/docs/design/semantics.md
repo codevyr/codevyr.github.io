@@ -342,10 +342,27 @@ query, at two different levels.
 
 **Weakness answers: does this command's selection constrain its neighbours?**
 A weak substatement is a display echo — it contributes nodes and edges to the
-result graph, but an empty match does not eliminate its parent or children.
+result graph, but it never *narrows* a neighbour that has already resolved, so
+an empty match cannot eliminate its parent or children.
 A strong substatement's selection participates in the composition: a parent
 survives only if it actually relates to something the strong child selected.
 It is exactly the strong neighbours that appear in §7's conjunction.
+
+There is one deliberate half-exception, and it runs the other way: a weak
+neighbour may *supply* a selection to a substatement that has none. Supplying
+is not narrowing — it is what carries data through a chain of weak
+intermediaries, as in `{{"a"}}`, where every scope above the leaf is weak and
+only the leaf selects anything. So the rule in full, and the one the engine
+applies on **both** notification edges — parent to child and child to parent —
+is:
+
+> A weak neighbour may seed a substatement that has nothing; it may never
+> narrow one that has already resolved.
+
+The two edges are stated together on purpose. The same weak command means the
+same thing whichever side of the braces it is written on, so
+`X { data(inherit="false") }` and `data(inherit="false") { X }` both leave `X`
+standing when the weak half matches nothing.
 
 A substatement is a *weakness candidate* when its command is
 **non-constraining**: every selector is a unit verb or a bare (nameless)
