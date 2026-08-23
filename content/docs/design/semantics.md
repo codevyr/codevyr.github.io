@@ -74,7 +74,11 @@ function override): **associative**, so the fold needs no parentheses,
 but **not commutative**, since override gives the later verb
 precedence. Source order is semantics — which is why \(H(c)\) also
 hashes per-verb inputs in source order
-([layer-keys §4](/docs/design/layer-keys/#command-hash)).
+([layer-keys §4](/docs/design/layer-keys/#command-hash)). The adopted
+[filter-expressions design](/docs/design/filter-expressions) codifies
+this per-tag table into a single law — a record of per-dimension
+slots, where positive slots replace and exclusions accumulate — and
+extends it over boolean slot *expressions* rather than single verbs.
 
 A verb can carry **several aspects at once**, contributing each to a
 different slot of \(c\): `search` both *populates* and contributes a
