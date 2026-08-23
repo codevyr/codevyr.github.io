@@ -220,6 +220,11 @@ Literals belong in argument position only. A bare `42` or `true` at the start
 of a statement is not a selector — to name a symbol called `42`, quote it:
 `"42"`.
 
+Every verb declares which arguments it takes, and anything else is an error
+rather than silently dropped — `func("main", bogus=1)` and `func("a", "b")`
+(which reads one name) both fail at parse. Whitespace around `=` is fine:
+`limit = 500` and `limit=500` are the same.
+
 ## Verb Types
 
 Verbs in Askl fall into three categories:
