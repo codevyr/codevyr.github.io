@@ -183,6 +183,43 @@ Glob strings work in every name position: bare selectors, `func()`/`file()`/`mod
 
 > **Performance:** Glob matching is served by a trigram index, which needs a run of at least 3 literal characters to narrow the search. Patterns whose literals are all shorter than that (e.g. `g"*ab*"`) fall back to scanning every symbol in scope — prefer a longer literal anchor where possible.
 
+### 5. Argument Types
+
+Verb arguments are typed. There are three primitive types:
+
+| Type | Written as | Example |
+|------|-----------|---------|
+| String | quoted, optionally with a type prefix | `"vfs_read"`, `g"handle*"` |
+| Integer | bare digits, 64-bit signed | `500`, `42` |
+| Boolean | the bare keywords `true` / `false` | `true`, `false` |
+
+```askl
+search("EXPORT_SYMBOL", whole_word=true, limit=2000)
+loc("main.c", 42)
+label("handlers", inherit=true)
+```
+
+**A quoted value is a string, even when it reads like a number or a flag.**
+`limit="500"` passes the *string* `"500"` where an integer is wanted, and
+`whole_word="true"` passes a string where a boolean is wanted. Both are errors,
+and the error names the spelling to use:
+
+```
+search: 'limit' expects an integer, found the string "500" — write limit=500
+```
+
+This matters because arguments used to be strings without exception. Queries
+written before argument types existed need the quotes removed from `limit`,
+`whole_word`, `inherit`, `forced`, and `loc()`'s line number.
+
+Which type an argument takes follows what it means, not what it looks like.
+`case="smart"` stays a string because it is one of three named modes, not a
+yes/no; `derive(type="refs,has")` stays a string because it is a list.
+
+Literals belong in argument position only. A bare `42` or `true` at the start
+of a statement is not a selector — to name a symbol called `42`, quote it:
+`"42"`.
+
 ## Verb Types
 
 Verbs in Askl fall into three categories:
@@ -526,12 +563,12 @@ Advanced relationship modifier with explicit control over type and inheritance.
 derive(type="has")                  /* Same as has (inherits by default) */
 derive(type="refs")                 /* Same as refs (inherits by default) */
 derive(type="has,refs")             /* Both containment and references */
-derive(type="refs", inherit="false") /* REFS for this scope only, children reset to default */
+derive(type="refs", inherit=false) /* REFS for this scope only, children reset to default */
 ```
 
 **Parameters:**
 - `type`: Comma-separated relationship types (`"has"`, `"refs"`, or `"has,refs"`)
-- `inherit`: Whether children inherit this setting (default: `"true"`)
+- `inherit`: Whether children inherit this setting, a boolean (default: `true`)
 
 ### unnest (Transitive Traversal)
 
@@ -649,9 +686,9 @@ Creates an ephemeral symbol at a specific file location — an anchor for
 "start from this line":
 
 ```askl
-loc("main.c", "42")                    /* file path (suffix match), 1-based line */
-loc("main.c", "42", project="linux")   /* restricted to one project */
-loc("drm_drv.c", "120") { func }       /* what does this line's code call? */
+loc("main.c", 42)                    /* file path (suffix match), 1-based line */
+loc("main.c", 42, project="linux")   /* restricted to one project */
+loc("drm_drv.c", 120) { func }       /* what does this line's code call? */
 ```
 
 Both positional arguments are quoted; the line must be ≥ 1.
@@ -764,12 +801,12 @@ Full-text search over the raw source bytes of every indexed file. Each occurrenc
 **Signature:**
 
 ```askl
-search(query, case="smart", whole_word="false", limit=500)
+search(query, case="smart", whole_word=false, limit=500)
 ```
 
 - `query` — required positional; the string to search for. **≥ 3 characters.**
-- `case` — `"smart"` (default), `"sensitive"`, or `"insensitive"`.
-- `whole_word` — `"false"` (default, substring match) or `"true"` (word-boundary match).
+- `case` — a string, since it is tri-state: `"smart"` (default), `"sensitive"`, or `"insensitive"`.
+- `whole_word` — boolean: `false` (default, substring match) or `true` (word-boundary match).
 - `limit` — integer ≥ 1, default `500`. Matches above the cap are dropped and the query result carries a truncation warning so you know to narrow.
 
 > ⚠️ **No regex support.** The query is matched as a *literal string* in every mode. `search("foo.*bar")` looks for the exact seven-character sequence `foo.*bar`, not a regex. `search("[a-z]+")` looks for the seven-character sequence `[a-z]+`. This is the most common surprise for users coming from `grep` / `ripgrep`; document your queries accordingly.
@@ -780,8 +817,8 @@ search(query, case="smart", whole_word="false", limit=500)
 
 | `whole_word` | Behaviour |
 |---|---|
-| `"false"` (default) | `search("foo")` matches `foo`, `foobar`, `xfoo`, `foo_bar` — any substring occurrence. |
-| `"true"` | `search("foo")` matches only occurrences bounded by non-word characters on both sides. Word characters are `[A-Za-z0-9_]`, so `foo_bar` counts as one word (no match on `foo`), but `foo.bar` splits on the dot and both `foo` and `bar` match. |
+| `false` (default) | `search("foo")` matches `foo`, `foobar`, `xfoo`, `foo_bar` — any substring occurrence. |
+| `true` | `search("foo")` matches only occurrences bounded by non-word characters on both sides. Word characters are `[A-Za-z0-9_]`, so `foo_bar` counts as one word (no match on `foo`), but `foo.bar` splits on the dot and both `foo` and `bar` match. |
 
 **Composition examples:**
 
@@ -792,11 +829,11 @@ project("kubernetes") search("mana_ib_reg_user")
 search("HandleFunc", case="sensitive")
     /* Case-sensitive substring search */
 
-search("open", whole_word="true") {}
+search("open", whole_word=true) {}
     /* For every occurrence of the word "open", pull its children (via has/refs) */
 
 project("linux")
-search("EXPORT_SYMBOL", whole_word="true", limit=2000)
+search("EXPORT_SYMBOL", whole_word=true, limit=2000)
     /* Higher limit for a common macro */
 ```
 
@@ -839,7 +876,7 @@ The `@` prefix is shorthand for `label("...")`. Use `@@` for inheritable labels:
 
 ```askl
 @@handlers "handler" {}
-/* Equivalent to: label("handlers", inherit="true") "handler" {} */
+/* Equivalent to: label("handlers", inherit=true) "handler" {} */
 ```
 
 ### use (Reuse a Label)
@@ -864,7 +901,7 @@ The `#` prefix is shorthand for `use("...")`.
 
 ```askl
 label("handlers") "handler" {}
-"main" { use("handlers", forced="true") }  /* Force the relationship */
+"main" { use("handlers", forced=true) }  /* Force the relationship */
 ```
 
 ### Ordering: labels reference earlier statements
@@ -895,7 +932,7 @@ Askl provides shortcut syntax for labels and reuse, using the `@` and `#` prefix
 | Shortcut | Equivalent | Description |
 |----------|-----------|-------------|
 | `@foo` | `label("foo")` | Labels the current statement as "foo" |
-| `@@foo` | `label("foo", inherit="true")` | Labels with propagation to child scopes |
+| `@@foo` | `label("foo", inherit=true)` | Labels with propagation to child scopes |
 | `#foo` | `use("foo")` | Uses the labeled statement's results |
 
 **Example:**

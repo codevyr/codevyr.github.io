@@ -365,7 +365,7 @@ is:
 
 The two edges are stated together on purpose. The same weak command means the
 same thing whichever side of the braces it is written on, so
-`X { data(inherit="false") }` and `data(inherit="false") { X }` both leave `X`
+`X { data(inherit=false) }` and `data(inherit=false) { X }` both leave `X`
 standing when the weak half matches nothing.
 
 A substatement is a *weakness candidate* when its command is

@@ -463,7 +463,7 @@ today's verbs none is); selection shards, carrying derived rows only,
 never are:
 
 ```askl
-search("foo") ; loc("main.c", "10") ; search("bar")
+search("foo") ; loc("main.c", 10) ; search("bar")
 ```
 
 - Statement 1 runs with an empty ephemeral suffix: just **Sh1(R)**,
