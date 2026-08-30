@@ -104,7 +104,11 @@ preamble {
 "cli.Run"
 ```
 
-Place `preamble` with `ignore` statements at the beginning to filter globally. You can also use single-line syntax: `preamble ignore("builtin") ignore("test")`
+A preamble applies to the statements that **follow** it, so putting one at the
+top of a query filters the whole thing. You can also use single-line syntax:
+`preamble ignore("builtin") ignore("test")`. A query may open more than one
+preamble — see [preamble](/docs/syntax/#preamble-global-configuration) for
+re-scoping mid-query.
 
 ## Practical Examples
 

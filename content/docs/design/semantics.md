@@ -410,6 +410,14 @@ components are silently empty; binding ones must be *satisfiable*:
 each needs at least one **anchor**, otherwise the query is rejected
 with a hint.
 
+A directive is non-binding *by construction*, not by inspection: its
+verbs are installed on the global command, and it keeps none of its own
+— not even the ones it inherited. That matters once a query opens more
+than one preamble, since each is parsed with its predecessors already in
+effect; without the rule a later directive would carry the earlier one's
+constraints and read as a constraint-only component, failing the
+satisfiability check it is not subject to.
+
 An **anchor** is a verb that can produce instances on its own: a name
 pattern, a name filter (`filter("exact_name", …)`,
 `filter("compound_name", …)`), `search(...)`, `loc(...)`, a layer
