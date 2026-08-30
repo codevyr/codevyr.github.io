@@ -741,18 +741,24 @@ preamble {
 "main"  /* This and all following queries ignore builtin and test */
 ```
 
-Single-line syntax also works (all preamble verbs must be on the same line):
+Single-line syntax also works, but every verb must be on the `preamble` line —
+a newline ends the statement, so verbs on the next line form a statement of
+their own rather than joining the directive:
 
 ```askl
 preamble ignore("builtin") ignore("test")
 ```
 
-A preamble takes **constraints and directives, not selectors**. `project(...)`,
+#### A preamble is a directive, not a statement
+
+A preamble configures the query; it never produces rows of its own. Three
+consequences follow, and each is an error rather than a silent surprise.
+
+**It takes constraints and directives, not selectors.** `project(...)`,
 `ignore(...)`, `filter(...)` — including the name filters, which scope every
-statement — bare type selectors and modifiers like `scope(...)` all belong
-here. A selecting term does not: it would be applied to every statement rather
-than selecting anything of its own, so it is rejected with an error rather than
-silently ignored.
+statement — bare type selectors and modifiers like `unnest` all belong here. A
+selecting term does not: it would be applied to every statement rather than
+selecting anything of its own.
 
 ```askl
 preamble project("myproject") "main"   /* error: a preamble cannot select */
@@ -760,6 +766,53 @@ preamble project("myproject") "main"   /* error: a preamble cannot select */
 preamble project("myproject")          /* write it as its own statement */
 "main"
 ```
+
+**It takes no label plumbing.** A label names *one* statement's result set, and
+"every statement" is not one result set — so neither `@name` nor `#name` has
+anything here to name or to read. Labels belong on the statements a preamble
+configures:
+
+```askl
+preamble @lib                          /* error: a preamble is not a statement */
+
+preamble project("myproject")          /* label the statement instead */
+func("main") @lib
+#lib { }
+```
+
+**It must be top level.** Inside a scope, "applies to every statement" has no
+reading, so a nested `preamble` is rejected instead of being quietly narrowed to
+the block. A `preamble` inside another `preamble` is refused for the same
+reason: the outer one already covers every statement.
+
+#### Preambles may repeat, and apply forward
+
+A preamble is not a header, so nothing caps how many a query opens or where
+they sit among the top-level statements. **Each one configures the statements
+that follow it** — so a second preamble re-scopes the rest of the query, which
+is how a single query spans two projects:
+
+```askl
+preamble project("ucx")
+dir("cuda_ipc") { func { any g"cuMemcpy*" } }
+
+preamble project("linux")              /* everything below is Linux */
+"drm_xe_vm_bind"
+```
+
+Separate preambles write separate parts of the same global command, so
+directives on different dimensions **accumulate**:
+
+```askl
+preamble project("myproject")
+preamble ignore("test")                /* both apply from here on */
+"main"
+```
+
+Writing the same dimension twice **replaces** it, following the usual
+[slot rules](#filters) — a later `project(...)` wins over an earlier one. A
+trailing preamble with no statement after it configures nothing, and is
+harmless.
 
 ### project (Project Filter)
 
