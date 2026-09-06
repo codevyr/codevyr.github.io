@@ -140,6 +140,12 @@ Shows all `main` functions and what they call.
 
 - **Nodes**: Represent matched functions
 - **Edges**: Show function calls (who calls whom)
+- **Warnings**: `too many results: this part of the graph is incomplete`
+  means a statement matched more than the engine would enumerate — narrow
+  it with a name, glob, type filter, `ignore(...)`, or `project(...)`
+- **More references / More instances**: a node popup showing one of these
+  sections means the node has more edges or file locations than one
+  response carries — click to page them in; the graph itself is complete
 
 ## Next Steps
 
@@ -155,7 +161,10 @@ Once you're comfortable with basic queries:
 ### 🆘 Common Issues
 
 **Q: My query returns too many results**
-A: Add more specific filters or use `ignore` to reduce noise
+A: Add more specific filters or use `ignore` to reduce noise. Each
+statement is capped at 100 symbols by default (`truncated` in the
+response); a statement that overflows the engine's discovery cap also
+carries an "incomplete" warning telling you to narrow it
 
 **Q: My query returns nothing**
 A: Check if parent functions actually call child functions in scopes

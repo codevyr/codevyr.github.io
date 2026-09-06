@@ -16,6 +16,7 @@ New to Codevyr? Start here:
 - **[Local Deployment](/docs/local-deployment)** - Run Codevyr locally with Docker Compose
 - **[C/C++ Indexing](/docs/c-indexing)** - Index C and C++ projects using a compilation database
 - **[Askl Syntax](/docs/syntax)** - Complete reference for the Askl query language
+- **[HTTP API](/docs/api)** - Running queries over HTTP, result limits, and the pagination endpoints
 - **[Composition Model](/docs/composition)** - Understanding containment relationships between symbols
 - **[Function Pointer Dispatch](/docs/dispatch)** - Tracing function pointer and interface method dispatch to implementations
 - **[Design](/docs/design/)** - Algorithms, data model, and correctness proofs behind the query engine and its verbs
