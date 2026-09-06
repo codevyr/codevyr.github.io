@@ -235,7 +235,14 @@ Some symbols have multiple instances:
 - A **module** has one instance per file it spans
 - A **directory** has one instance per contained file
 
-When clicking on such nodes in the UI, a popup shows all instances, allowing you to navigate to specific files.
+When clicking on such nodes in the UI, a popup lists the instances,
+allowing you to navigate to specific files. For symbols with very many
+instances (a kernel module can span hundreds of files) the server ships
+only the first batch — real code instances first — and marks the node
+truncated; the popup then shows **More instances (N of M shown)** with a
+button that pages in the rest. The count is exact, and fetching more
+never re-lays-out the graph. See the
+[HTTP API](/docs/api#instances) for the underlying endpoint.
 
 ## Use Cases
 

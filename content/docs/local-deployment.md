@@ -47,6 +47,12 @@ You should see `askld`, `codevyr`, and `db` running.
 
 If you are indexing a large project, increase the upload limit in `compose.local.yaml` via `ASKL_MAX_UPLOAD_BYTES` (the default in the local override is 512 MB).
 
+Result-size knobs can be tuned the same way: `ASKL_MAX_RESULT_SYMBOLS`
+(symbols per command) and `ASKL_LISTING_CAP` (rows per per-node listing)
+bound what one response carries; see the
+[HTTP API](/docs/api#configuration) for defaults, per-request overrides,
+and the in-query `limits()` verb.
+
 ## 3) Generate a Kubernetes index
 
 Use the helper script from the `compose` repo to run the indexer and write the output into a local directory:

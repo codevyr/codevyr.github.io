@@ -153,6 +153,14 @@ page that owns it.
   binding component wants results and must be satisfiable; a
   non-binding one is structure or directive, and is silently empty
   ([semantics §9.2](/docs/design/semantics/#bindness)).
+- **result budget** — the per-STATEMENT cap on distinct symbols a
+  response ships (default 100, `?limit=`); statements never share one
+  budget ([Bounded Results](/docs/design/bounded-results)).
+- **capped (selection)** — a selection whose discovery read hit the
+  safety cap: flagged, excluded from composition, and warned about —
+  distinct from assembly truncation, which only pages a listing
+  ([Bounded Results](/docs/design/bounded-results)).
+
 
 **What a query means.**
 
@@ -286,6 +294,10 @@ obvious; the last for one verb end to end, in SQL and in milliseconds.
 - **[Planning from Measured Cardinality](/docs/design/planning)** —
   anchors, capped id probes, and the refinement waves that let one
   selective leaf drive a query.
+- **[Bounded Results](/docs/design/bounded-results)** — the two kinds of
+  capping (discovery warns, assembly paginates), the per-command
+  result budget, and the endpoints that recover what a response
+  withheld.
 
 **Storing and reusing results**
 

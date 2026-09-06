@@ -1125,6 +1125,86 @@ func("handler") { "validate" } ; func("handler") { "log" }
 /* handlers calling validate, plus handlers calling log */
 ```
 
+## Result Limits and Truncation {#result-limits}
+
+Askl bounds work and responses at every level, and always says so when a
+bound was hit. Two different kinds of limit exist, and they mean
+different things:
+
+### The result budget (per command) {#result-budget}
+
+Every **command** gets its own result budget — by default 100 distinct
+symbols. Commands never compete for one shared budget: in
+
+```askl
+mod("amdgpu") { func };
+
+"sysfs_remove_file_from_group"
+```
+
+the `func` command's hundreds of derived symbols are capped to its own
+100, while the `"sysfs_remove_file_from_group"` command keeps its one
+anchored symbol — a dedicated selector always shows its results, no
+matter how large a neighbouring command's fan-out is. When any command
+overflows its budget, the response's `truncated` flag is set and the kept
+symbols are chosen deterministically (by file path, offset, and id).
+
+The verbs documented as *budget-bounded* elsewhere on this page —
+`select`, bare enumerations, `search` — are bounded by exactly this
+budget.
+
+#### Raising the limits: the `limits()` verb {#limits-verb}
+
+`limits(symbols=N, listing=M)` overrides the defaults on the command it
+sits on, and inherits into nested scopes (pass `inherit=false` to stop
+that). At least one of `symbols` or `listing` is required; `0` means
+unlimited.
+
+- `symbols` — distinct symbols (nodes) the command's selection may ship.
+- `listing` — rows in any single per-node listing: instances per node,
+  distinct out-edges per node, and call-sites per edge. See
+  [per-node listings](#paged-listings).
+
+```askl
+mod("amdgpu") limits(symbols=300) { func }
+/* the module and its <=300 functions, instead of the default 100 */
+
+func("handler") limits(listing=200)
+/* show up to 200 instances / call-sites on each handler node */
+```
+
+Because it rides in the query text, a shared `#q=` link carries its own
+limits. A child command's own `limits()` wins over an inherited one, per
+field.
+
+### Discovery caps and the incompleteness warning {#incompleteness}
+
+Separately from the result budget, every SQL read the engine performs is
+capped for safety. When a statement's *discovery* read hits that cap —
+the engine could not even enumerate everything that matches — the result
+carries the warning:
+
+```text
+too many results: this part of the graph is incomplete. Narrow it with
+a name or glob, a type filter, `ignore(...)`, `project(...)`, or fewer
+hops
+```
+
+This is stronger than budget truncation: the symbol set itself may be
+missing entries, and a capped statement's partial answer is never used
+to narrow its neighbours. The fix is what the warning says — a narrower
+query — not pagination.
+
+### Per-node listings are paged, not warned {#paged-listings}
+
+Once the symbol set is settled, what each node *carries* (its instance
+list, its edge listing) is capped for payload size and marked truncated
+in the response (`instances_truncated`, `edges_truncated`). That is an
+invitation to fetch more — the UI shows "More references" / "More
+instances" in the node popup, and clients can page the
+[references and instances endpoints](/docs/api#references) directly. It
+never means the graph is wrong.
+
 ## Query Rules and Validation
 
 ### Required Elements
