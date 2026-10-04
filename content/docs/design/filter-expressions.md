@@ -45,7 +45,7 @@ merge**, not conjunction. The aspects:
 | Aspect | Verbs | Merge law | Inheritance |
 |---|---|---|---|
 | **predicate** | filters and anchors | this page | this page |
-| **relationship mode** | `has`, `refs`, `derive`, `unnest` | override | own channel, as today |
+| **relationship mode** | `has`, `refs`, `derive`, `unnest`, `nested` | override | own channel, as today |
 | **bindings** | `@x`, `@@x`, `#x`, `label` | accumulate | opt-in (`@@`) |
 | **execution environment** | `preamble`, `layer`, ephemeral verbs | own rules | own rules |
 

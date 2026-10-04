@@ -310,7 +310,8 @@ own and is rejected with a hint instead of silently returning an empty result.
 | `derive(type="...")` | Set relationship type with options |
 | `preamble` | Apply subsequent verbs to the global scope |
 | `label("name")` / `@name` | Label this statement for reuse |
-| `unnest` | Include transitive children/references and all containment levels |
+| `unnest` | Reach every descendant, at any depth and through any fold |
+| `nested` | Reach exactly one structural level |
 | `!` (forced) | Force display of relationships |
 
 > **Weakness is inferred, not written.** There is no weak marker: bare
@@ -340,7 +341,7 @@ statement; newlines are allowed inside parentheses.
 **What may appear in an expression.** Predicate verbs only: name patterns,
 type selectors (bare or named), `project(...)`, `package(...)`,
 `filter(...)`, `ignore(...)`. Everything else is rejected with a hint:
-relationship verbs (`has`, `refs`, `derive`, `unnest`) and labels are not
+relationship verbs (`has`, `refs`, `derive`, `unnest`, `nested`) and labels are not
 predicates; `search(...)`, `loc(...)`, layer literals, and `!"..."` are
 not a single predicate query; bare `any` and `select` constrain nothing.
 Inside an expression a verb contributes only its predicate — `file or dir
@@ -575,32 +576,63 @@ derive(type="refs", inherit=false) /* REFS for this scope only, children reset t
 - `type`: Comma-separated relationship types (`"has"`, `"refs"`, or `"has,refs"`)
 - `inherit`: Whether children inherit this setting, a boolean (default: `true`)
 
-### unnest (Transitive Traversal)
+### Traversal modes: `nested` and `unnest` {#traversal-modes}
 
-By default, scopes show only **direct** children (for `has`) or **direct** references (for `refs`), and upward HAS derivation returns only the **innermost** parent. The `unnest` modifier removes these restrictions, enabling full transitive traversal through all nesting levels.
+A scope asks a containment question, and there are three answers it can want.
+All three are the same walk over the index's containment tree; they differ only
+in where they stop. See [Containment](/docs/design/containment/) for the model.
+
+| mode | reaches |
+|---|---|
+| `nested` | exactly one structural level |
+| *(default)* | any depth, but not through code a macro generated |
+| `unnest` | any depth, through everything |
+
+**The default is not "direct".** Containment is a real chain — module contains
+directories, directories contain files, files contain declarations — so a
+module's *direct* children are files, and `mod("amdgpu") { func }` would return
+nothing. The default instead passes straight through those structural levels
+and stops at a **fold boundary**: a macro expansion. So the query returns the
+module's functions wherever they sit, but not the compiler-internal helpers
+that a macro expanded into.
 
 ```askl
-func("main") has { func }           /* Only direct children of main */
-func("main") unnest has { func }    /* All transitively nested functions */
+mod("amdgpu") { func }              /* ~900 real functions, no macro internals */
+mod("amdgpu") { macro { func } }    /* what the macros expand to, on purpose */
 ```
 
-Without `unnest`, if `main` contains function `foo` which contains function `bar`, only `foo` appears. With `unnest`, both `foo` and `bar` appear.
+The same rule is what separates the two occurrences of `foo` in `printk(foo)`:
+the argument is written by the caller and comes back, the expanded use inside
+the macro sits one fold deeper and does not.
 
-`unnest` also affects reference traversal:
+**`nested`** narrows to exactly one level, ignoring folding. It is how to ask
+what an expansion produces immediately:
 
 ```askl
-func("main") { func }               /* Only refs directly in main's body */
-func("main") unnest { func }        /* Refs from main and all nested scopes */
+file("main.c") { nested }              /* the file's own declarations, nothing deeper */
+func("main") { macro("printk") { nested } }   /* what printk expands to, one level */
 ```
 
-For upward (caller/parent) derivation, `unnest` returns all containment levels instead of just the innermost parent:
+**`unnest`** removes every restriction:
 
 ```askl
-{ "inner_symbol" }          /* Only the innermost container */
-unnest { "inner_symbol" }   /* All containers at every level */
+func("main") { unnest }             /* everything inside main, at any depth */
 ```
 
-> **Note:** `unnest` does **not** inherit to child scopes. Each statement that needs transitive traversal must use `unnest` explicitly.
+Upward derivation uses the same knob. A bare `{ "x" }` surfaces every container
+of `x` that is not behind a fold; `nested` asks for just the one container `x`
+literally sits in:
+
+```askl
+{ "data_d" }            /* func_a, its file, its directory */
+nested { "data_d" }     /* func_a */
+```
+
+> **Where the modifier goes.** A traversal mode belongs to the statement whose
+> reach it bounds. For downward traversal that is the statement *inside* the
+> braces — `file("main.c") { nested }`, not `file("main.c") nested { }` — and
+> for upward derivation it is the statement that owns the scope. Modes do not
+> inherit into child scopes, and they do not combine: the last one written wins.
 
 ### any (Any Symbol Type)
 
@@ -756,7 +788,7 @@ consequences follow, and each is an error rather than a silent surprise.
 
 **It takes constraints and directives, not selectors.** `project(...)`,
 `ignore(...)`, `filter(...)` — including the name filters, which scope every
-statement — bare type selectors and modifiers like `unnest` all belong here. A
+statement — bare type selectors and modifiers like `unnest` or `nested` all belong here. A
 selecting term does not: it would be applied to every statement rather than
 selecting anything of its own.
 

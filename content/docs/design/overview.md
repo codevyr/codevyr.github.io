@@ -210,7 +210,10 @@ page that owns it.
   **HAS** edge is containment (a module contains a function). A scope
   written `{ }` with no relationship modifier asks for either; `@has` and
   `@refs` pin it. Which kind a nesting asks for is what its evidence
-  relation stands for.
+  relation stands for. What *contains* what is not read off source
+  ranges — it cannot be, for anything a macro generates — but from a
+  depth-first interval the indexer writes down
+  ([Containment](/docs/design/containment)).
 
 **Storage and reuse.**
 
