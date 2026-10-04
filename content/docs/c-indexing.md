@@ -144,6 +144,28 @@ askl-clang-indexer /path/to/project/build \
 
 The first positional argument is the project directory. It must contain `compile_commands.json` (either directly or via the build directory).
 
+## What the indexer records
+
+Beyond symbols and references, the indexer writes down the **containment
+tree** itself: every instance carries a depth-first interval, its nesting
+level, and whether it exists only because a macro expanded. Ranges alone
+cannot express this in C — everything `PMU_FORMAT_ATTR(...)` generates shares
+one extent, and a `##`-pasted name has no source location at all — so the walk
+that libclang already performs is what states it. See
+[Containment](/docs/design/containment/) for the model and
+[Traversal modes](/docs/syntax/#traversal-modes) for what it buys a query.
+
+Each instance also carries up to three optional spans inside its extent: the
+**name** token, the **signature**, and the **content**. They are what let the
+UI highlight an identifier or show a multi-line C signature correctly, and they
+are stored rather than derived, because K&R declarations, attributes between
+the signature and the body, and trailing return types all break the
+subtraction.
+
+Files pulled in by `--include-git-files` that no compile command covers are
+still indexed as file objects, so `search()` reaches documentation, scripts and
+headers that no translation unit includes.
+
 ## Pre-built Docker images
 
 Pre-built containers are available for several projects. Each container installs all build dependencies, configures the project, builds it, and runs the indexer in one step:
