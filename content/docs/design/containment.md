@@ -154,8 +154,15 @@ transitive descent):
 | a file | no | 0 | — |
 | `event_show`, generated, whose ancestors are not | yes | 0 | **yes** — a real function of the module |
 | `__compiletime_assert_1121`, inside generated `event_show` | yes | 1 | **no** |
-| the expanded `foo` inside `printk(foo)` | — | 1 | **no** |
-| the argument `foo`, owned by the caller | — | 0 | **yes** |
+| the argument `foo` in `printk(foo)`, owned by the caller | — | 0 | **yes** |
+
+Folding answers *what did this macro bring into existence*, and nothing else.
+What a macro **calls** is not a fold question: references are **layerwise**, one
+edge per `#define`, so `handler -> DEV_PRINT -> printk` is a chain of ordinary
+edges and `handler -> printk` is a traversal of it. The producer records the
+body reference where the macro author wrote it and an invocation reference at
+each call site; neither needs a fold level, and a reference's `fold_depth` is
+non-zero now only when it sits inside macro-*generated* code.
 
 ## 4. The three traversal modes {#modes}
 
@@ -173,6 +180,12 @@ The default is *unfolded*, not *direct*. Direct would make
 Unfolded passes through the structural levels and stops at a macro boundary —
 and the `+ (X.folded ? 1 : 0)` term is exactly what lets
 `mod { macro { func } }` step one level past a fold on purpose.
+
+`unnest` lost its main reason to exist, and that is the point. It was the only
+way to reach what a macro called, because the edge `handler -> DEV_PRINT` did
+not exist and containment was the only route across. It does: `unnest` is now
+for ordinary containment that runs deeper than a fold rule allows, not for
+macros.
 
 Two consequences worth stating, both accepted:
 

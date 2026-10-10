@@ -601,9 +601,32 @@ mod("amdgpu") { func }              /* ~900 real functions, no macro internals *
 mod("amdgpu") { macro { func } }    /* what the macros expand to, on purpose */
 ```
 
-The same rule is what separates the two occurrences of `foo` in `printk(foo)`:
-the argument is written by the caller and comes back, the expanded use inside
-the macro sits one fold deeper and does not.
+The same rule is what keeps `foo` in `printk(foo)` the caller's: every byte at
+a call site was typed by the caller, so the argument comes back from the
+enclosing function and a macro never claims it.
+
+**What a macro calls is reached by edges, not by folding.** Macro edges are
+*layerwise*: each layer records only what its own body names, so
+
+```c
+#define DEV_PRINT(x) do { printk(x); } while (0)
+
+void handler(void) { DEV_PRINT(threshold); }
+```
+
+gives three edges — `handler -> threshold`, `handler -> DEV_PRINT`, and
+`DEV_PRINT -> printk` — and `handler -> printk` is a two-hop traversal, exactly
+as it would be for a chain of functions. A wrapper around a wrapper chains the
+same way: `handler -> FATAL -> ERR -> MSG -> output`, one edge per `#define`.
+
+```askl
+macro("DEV_PRINT") { "printk" }        /* what the macro's body calls */
+func("handler") { macro }              /* the macros it invokes */
+```
+
+So folding is about what a macro *generates* — the symbols it brings into
+existence, whose names may not even appear in the source — and not about what
+it calls. Reaching through a macro to its callees needs no modifier at all.
 
 **`nested`** narrows to exactly one level, ignoring folding. It is how to ask
 what an expansion produces immediately:
