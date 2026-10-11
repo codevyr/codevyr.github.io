@@ -29,22 +29,26 @@ what askl used, and it is wrong in C for two independent reasons.
 **A macro expansion cannot contain what it generates.** The indexer used to
 record an expansion clamped to the macro *name* — measured on the deployed
 index, **5,439 of 5,439** sampled expansions had width exactly the name's
-length, so an expansion could never own anything. The clamp bought one real
-thing: in `printk(foo)` the argument `foo` came out a *sibling* of `printk`
-rather than something it contains, which is right, because the caller wrote it.
+length, so an expansion could never own anything. Widening it to the whole
+invocation does not help either: then it contains the *arguments*, and the
+caller wrote those.
 
-But that was range-based parentage, and ranges no longer decide parentage. The
-clamp is gone: an expansion now records the whole invocation, which is the span
-a reader wants, and the argument stays the caller's because of a rule about
-*ownership* rather than a narrowed span — see [ephemeral rows](#ephemeral).
-Two questions, two mechanisms, instead of one span forced to answer both.
+Neither span is wrong, because the record is. **Using a macro is a reference,
+not an instance.** A macro is declared once, at its `#define`, and every use is
+one site naming it — which is what a reference is. So there is no expansion
+instance to size and no question of what one contains.
+
+Deleting them removed **37.8% of criu's instances** (54,829 → 34,090) and left
+the reference set byte-for-byte identical, which is what proves the two records
+were saying the same thing. `func { macro }` and `mod("amdgpu") { macro }` keep
+working through the reference, exactly as `func("main") { "printk" }` does —
+`printk` has no instance in `main` either.
 
 **Generated symbols share one extent.** At `arch/x86/events/amd/core.c:1067`,
 `PMU_FORMAT_ATTR(event, "config:0-7,32-35")` generates four symbols:
 
 | instance | kind | range | width |
 |---|---|---|---|
-| `PMU_FORMAT_ATTR` | expansion | `[27763,27778)` | 15 |
 | `format_attr_event` | definition | `[27763,27805)` | 42 |
 | `event_show` | definition | `[27763,27805)` | 42 |
 | `struct (unnamed …:1067:1)` | definition | `[27763,27805)` | 42 |
@@ -88,6 +92,42 @@ parent's.** `First` occupies five bytes and owns a closure thirty bytes away.
 That is the encoding working as intended — the interval decides containment and
 never consults a range.
 
+## 2b. One file, many translation units {#union}
+
+A `.c` file is compiled once, but a header is compiled once per file that
+includes it — and under C's preprocessor each of those compilations can see
+*different declarations*. glibc's `stddef.h` is built for exactly that: you
+`#define __need_size_t` before including it and get only `size_t`.
+
+So the index takes the **union** of every translation unit's view of a file.
+Identical declarations from two compilations are one declaration — an instance
+is a declaration in the text, keyed by its symbol, kind and extent, so parsing
+the same text again adds nothing. A declaration only some compilations saw is
+added.
+
+The alternative, keeping whichever compilation reached the file first, loses by
+arrival order, and it loses *silently* in a specific way: the symbol table is
+project-wide and accumulates across all of them, so the name survives while its
+only instance does not. That is a symbol a query can name and never locate.
+Measured on criu before the fix, reversing the order of 211 translation units
+changed **which 21 symbols were locatable at all**.
+
+Two consequences worth stating, both accepted:
+
+- **Both arms of an `#ifdef` co-exist**, and nothing records which build each
+  belongs to. The index describes the *text*, not one configuration. This is
+  not a new ambiguity — the symbol table always worked this way — it makes the
+  two halves agree.
+- **A name can be two kinds of thing.** criu compiles one file twice, the
+  second time with `-Dvdso_fill_symtable=vdso_fill_symtable_compat`, so
+  `vdso_fill_symtable` is a function in one compilation and a macro in the
+  other. Both are true of the source, and both are in the index.
+
+A symbol with no instance at all is still possible and still correct: a macro
+the compiler defines (`__GNUC__`, `__has_include`) or one that came from a `-D`
+flag has no declaration in the tree to point at. On criu that is 51 of 136 such
+symbols. Naming them is useful — they are referenced — so they stay.
+
 ## 3. The three axes {#axes}
 
 | axis | columns | question it answers |
@@ -105,7 +145,7 @@ source ranges are identical**, which is the only thing that orders the
 
 ```
 enter exit depth  node
-  1    10    0    PMU_FORMAT_ATTR
+  1    10    0    the file
   2     5    1      event_show
   3     4    2        __compiletime_assert_1121
   6     7    1      format_attr_event
@@ -113,6 +153,23 @@ enter exit depth  node
 ```
 
 `event_show` `[2,5)` contains the assert; `format_attr_event` `[6,7)` does not.
+The macro itself is not in this tree: it is the *reference* that put these four
+here, and it lives at its own `#define`.
+
+Real numbers, from glibc's `__SOCKADDR_ALLTYPES` as indexed in criu — thirteen
+union members generated at one extent, inside an ordinary unfolded definition:
+
+```
+ enter   exit  depth  node                                 range
+ 25600  53248    2    __SOCKADDR_ARG                       [2819,2878)
+ 26624  27648    3      __SOCKADDR_ARG.__sockaddr__        [2835,2854)
+ 28672  29696    3      __SOCKADDR_ARG.__sockaddr_at__     [2835,2854)
+   …                      … eleven more, byte-for-byte the same range
+ 51200  52224    3      __SOCKADDR_ARG.__sockaddr_x25__    [2835,2854)
+```
+
+Thirteen identical ranges, thirteen disjoint intervals. No comparison of those
+ranges could have ordered them, and none has to.
 
 Numbering is **sparse** — persistent instances are spaced one stride (1024)
 apart — so a query-time ephemeral row (a `search()` match, say) can be slotted
@@ -192,9 +249,13 @@ Two consequences worth stating, both accepted:
 - `X { Y }` no longer means strictly "direct". In Go, `func { func }` returns
   closures nested at any depth, and a reference inside a local declaration
   counts as the enclosing function's.
-- `nested` is the only reader of `nesting_level`, and the only way to ask the
-  question the other two modes cannot: *what does this expansion produce,
-  immediately*.
+- `nested` is the only reader of `nesting_level`, and the only way to ask for
+  exactly one structural level: a file's own declarations, or the single
+  container a symbol literally sits in. It is **not** a window onto what a
+  macro generated — a generated declaration is placed where it was written, so
+  on the deployed ucx index `macro("ucs_offsetof") { nested }` returns only
+  `ucs_offsetof`, and `macro("__KHASH_IMPL") { nested }` returns the six macros
+  its body calls.
 
 ## 5. Ephemeral rows {#ephemeral}
 
@@ -219,8 +280,9 @@ contains it.** Each word is doing work:
   **cached** layer's numbering cannot depend on which query populated it first;
 - *unfolded* — **a macro expansion owns no text.** Every byte at the call site
   of `foo(a)` was typed by the caller, so the owner of a match anywhere inside
-  it is the enclosing function. An expansion owns the symbols it *generates*,
-  through the interval, and nothing else;
+  it is the enclosing function — and there is no expansion instance to pick in
+  the first place. What the word still excludes is macro-*generated* code,
+  which owns the text of the declarations it produced but never a call site;
 - *innermost* — narrowest extent, then **deepest in the tree**, with
   `dfs_enter` only as a final tiebreak. The same rule both indexers use to place
   a persistent reference, so one byte range gets one owner whether the row is
