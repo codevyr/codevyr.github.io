@@ -592,7 +592,7 @@ in where they stop. See [Containment](/docs/design/containment/) for the model.
 directories, directories contain files, files contain declarations — so a
 module's *direct* children are files, and `mod("amdgpu") { func }` would return
 nothing. The default instead passes straight through those structural levels
-and stops at a **fold boundary**: a macro expansion. So the query returns the
+and stops at a **fold boundary**: a declaration a macro generated. So the query returns the
 module's functions wherever they sit, but not the compiler-internal helpers
 that a macro expanded into.
 
@@ -628,13 +628,17 @@ So folding is about what a macro *generates* — the symbols it brings into
 existence, whose names may not even appear in the source — and not about what
 it calls. Reaching through a macro to its callees needs no modifier at all.
 
-**`nested`** narrows to exactly one level, ignoring folding. It is how to ask
-what an expansion produces immediately:
+**`nested`** narrows to exactly one structural level, ignoring folding. It is
+how to ask for a container's own contents and nothing deeper:
 
 ```askl
 file("main.c") { nested }              /* the file's own declarations, nothing deeper */
-func("main") { macro("printk") { nested } }   /* what printk expands to, one level */
 ```
+
+It is *not* a window onto what a macro generated. A generated declaration is
+placed where it was written, not under the macro, so `macro("X") { nested }`
+returns what `X`'s body names — its edges. What a macro *generates* is reached
+by folding, which is what the default mode above does.
 
 **`unnest`** removes every restriction:
 
