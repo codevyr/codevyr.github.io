@@ -280,12 +280,26 @@ exact inputs.
 
 The probe SQL was validated with `EXPLAIN ANALYZE` against a production
 index (5.9 M symbols, 23.3 M references) before any engine work, and one
-of its lessons is design rather than tuning: containment roles have to be
-handed to the database as materialised subqueries, because otherwise its
-planner declines to drive the probe from the tiny role set and scans the
-containment tables in full instead (seconds, against milliseconds when
-the small side drives) — a role only pays if it is what the read is
-driven from.
+of its lessons is design rather than tuning: every role — containment
+and reference alike — is handed to the database as a materialised
+subquery, because otherwise its planner declines to drive the probe from
+the small role set and scans the main tables in full instead (seconds,
+against milliseconds when the small side drives) — a role only pays if
+it is what the read is driven from.
+
+The containment roles were materialised from the start; the reference
+roles were not, because measured with a handful of ids they were fast.
+That hid a product of two facts. A role holds at most `cap` ids, and the
+database estimates a parameterised id array at a fixed ten rows whatever
+its length, so a cap-sized role looks a hundred times smaller than it is
+and the planner drives from the other side — every symbol in the
+project. And `LIMIT k+1` only rescues that plan when rows exist: the
+empty answer, which is what a refinement round asks for most, has no
+early exit and is paid in full. One such probe took eleven seconds to
+return nothing. Materialising the role is a fence rather than a better
+estimate — the planner's row count for the materialised set is still off
+by an order of magnitude — but it computes the small side first and joins
+the real rows, which is all that is needed.
 
 Probes run in combined visibility through the in-RAM SQL cache, so repeat
 and refinement probes are cache hits. All id binds are canonicalised
@@ -306,8 +320,7 @@ The §1 query, byte-identical output at both ends:
 Between the two rows lie probes and refinement (§4–§5), the
 smallest-neighbour binding rule that stops a broad neighbour from costing
 more than it narrows, resolved ids substituted into scopes (§7), and the
-two database details of §8 — materialised containment roles and canonical
-id binds.
+two database details of §8 — materialised roles and canonical id binds.
 
 ## 10. Configuration {#configuration}
 
