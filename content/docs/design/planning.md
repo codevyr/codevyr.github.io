@@ -108,8 +108,10 @@ together with the completeness rule it feeds in
 What matters to planning is the converse. A command of pure constraints —
 bare type selectors, `project(...)`, `preamble` — has a denotation the
 size of the index, never worth materialising unconstrained, so such
-substatements only ever derive. Anchoring answers *may this substatement
-drive?* Cost, measured next, answers *should it, and when?*
+substatements never probe on their own: they derive, and may resolve in a
+refinement wave once a neighbour's role bounds them (§5). Anchoring
+answers *may this substatement drive a wave of its own?* Cost, measured
+next, answers *should it, and when?*
 
 ## 4. Probes {#probes}
 
@@ -173,24 +175,28 @@ relationship carries both edge kinds, one conjunctive role would be
 unsound (an edge of *either* kind is evidence), so the neighbour
 contributes one probe per kind — a **branch** — and \(c\) resolves iff
 every branch resolves, its set being the union of the branch results.
-With one neighbour bound at a time (below), a branch *combination* is a
-single branch; the machinery is the general one, taking one branch per
-bound neighbour and capping the number of combinations, a candidate with
-a wider fan-out staying on the predicate path. Because the branches are
+With one neighbour bound, a branch *combination* is a single branch; with
+several (below) it is one branch per bound neighbour, their product capped
+at four, a candidate with a wider fan-out staying on the predicate path.
+Because the branches are
 unioned, a resolved set can hold more than \(k\) ids: the cap bounds each
 branch, not their union. Waves iterate to a fixpoint: a substatement
 resolved in wave \(i\) can serve as the binding for its other neighbours
 in wave \(i+1\), so constraint flows across the tree.
 
-**Binding choice.** Each candidate binds only its **smallest** resolved
-neighbour, re-probing only when a strictly smaller binding appears: a
-role's evaluation cost scales with the bound set, and a broad neighbour can
-cost more to conjoin than it narrows. The refined result is a larger — still
-sound — superset; the worklist narrows the rest. Any *one* constraining
-neighbour may be bound: by §2 each is a condition \(N_c\) must satisfy
-regardless of the others, so refining against one of several siblings
-keeps every row the conjunction can keep and merely leaves the siblings'
-conditions to the worklist.
+**Binding choice.** Composition is on demand, tightest neighbour first. A
+candidate first binds its **smallest** resolved neighbour alone: a role's
+evaluation cost scales with the bound set, and when one neighbour can bound
+the statement, conjoining a broad one buys no resolving power and costs a
+great deal. Only when that attempt caps does the next widen by one
+neighbour, and a candidate re-probes only under a composition **strictly
+more restrictive** than any it has tried — a neighbour composed in anew,
+or one that has narrowed since. The refined result is a larger — still
+sound — superset; the worklist narrows the rest. Binding any subset of the
+constraining neighbours is sound: by §2 each is a condition \(N_c\) must
+satisfy regardless of the others, so refining against some of several
+siblings keeps every row the conjunction can keep and merely leaves the
+others' conditions to the worklist.
 
 ## 6. Properties {#properties}
 
@@ -215,14 +221,31 @@ read will use — \(\mathrm{Inst}\) must not move underneath an id list.
 selection: \(N_c \subseteq \mathrm{inst}(\mathrm{res}(c))\), provided each
 binding it was obtained from is a constraining neighbour of §2.
 
-That proviso is discharged by an invariant the engine maintains: an
-anchored command is never weak
-([semantics §9.2](/docs/design/semantics/#bindness)), and only anchored
-substatements probe (§3), so every resolved neighbour is strong and hence
-a conjunct of the composition in its own right. How many siblings it has
-no longer enters the hypothesis — under a conjunction each of them is a
-separate necessary condition, so binding one is a relaxation and never an
-overreach.
+For wave 0 the proviso holds outright: an anchored command is never weak
+([semantics §9.2](/docs/design/semantics/#bindness)), and wave 0 probes
+only anchored substatements (§3), so every wave-0 resolution is a strong
+neighbour's and hence a conjunct of the composition in its own right. How
+many siblings it has does not enter the hypothesis — under a conjunction
+each of them is a separate necessary condition, so binding one is a
+relaxation and never an overreach.
+
+Refinement waves also probe pure-constraint substatements, which may be
+weak — a top-level `func { … }` is one — and **the binding step does not
+consult weakness**. Two facts cover most of the gap. A weak substatement
+has no anchor, so it resolves only through a neighbour that is already
+resolved, and by permanence (Theorem 3) that neighbour never binds it
+back; and when a weak statement's resolved set is used to resolve one of
+its own children, that is supplying, which the weakness rule allows. The
+case that remains is a weak statement resolved through one neighbour and
+then bound by another that is still capped: `func { "a" ; g"x*" }` with
+`x*` too common to resolve on its own. There the planner narrows `x*` to
+what the callers of `a` reach, where the worklist — which never lets a
+weak parent narrow — would have left it capped and warned. Measured on
+ucx, `func { "ucp_worker_create" ; g"ucp_*" }` answers 31 symbols with no
+warning while `func g"ucp_*"` alone caps. Nothing false is shown, but the
+resolved set undershoots the selection the semantics prescribe, so for
+this shape Theorem 2 is not what the engine enforces until binding asks
+the weakness rule.
 
 *Proof sketch, by induction on the wave in which a set was resolved.*
 Wave 0: \(\mathrm{res}(c) = \mathrm{ids}(D(c))\) by Theorem 1, and
@@ -242,21 +265,25 @@ $$x \;\in\; (\hat{E}^{\mathrm{rel}}_{c,n})^{-1}[N_n] \;\subseteq\; \rho_{\mathrm
 and hence \(x \in D(c) \cap \rho_{\mathrm{rel}}(\mathrm{inst}(\mathrm{res}(n)))\),
 which by Theorem 1 is what that kind's branch enumerates. So there is a
 combination — with one neighbour bound, the single branch for
-\(\mathrm{rel}\) — all of whose branches \(x\) satisfies, and \(c\)'s
+\(\mathrm{rel}\); with several, the same argument per neighbour picks one
+branch of each — all of whose branches \(x\) satisfies, and \(c\)'s
 resolved set, being the union over combinations, keeps \(x\). ∎
 
 Soundness is exactly the contract both consumers (§7) require: a resolved
 set is *exact in composition* — it may exceed \(N_c\), never undershoot it.
 
 **Theorem 3 (termination).** The refinement loop runs at most
-\(\lvert\text{substatements}\rvert\) waves. The variant is the number of
-**unresolved** substatements, and what makes it fall is permanence: a
-resolved substatement keeps the set it resolved to, is never re-probed,
-and never returns to being capped. So a wave that resolves anything
-lowers the count for good, a wave that resolves nothing ends the loop,
-and the count starts at most at the number of substatements. (The
-smallest-binding rule of §5 bounds how often one *candidate* re-probes
-within that; it is an economy, and no part of this argument.)
+\(\lvert\text{substatements}\rvert\) waves. Two things bound it.
+*Permanence*: a resolved substatement keeps the set it resolved to, is
+never re-probed, and never returns to being capped, so the number of
+unresolved substatements never rises. And the *retry rule* of §5: a
+candidate re-probes only under a composition strictly more restrictive
+than any it has tried, and compositions are bounded by its neighbour
+count. So a wave that resolves nothing does **not** end the loop — that is
+exactly when a wider composition is worth trying — and the loop ends when
+no candidate has an untried, more restrictive composition left. The engine
+caps the rounds at the number of substatements as a backstop; the bound
+has never been what stopped a real query.
 
 ## 7. Consumers of resolved sets {#consumers}
 
@@ -279,8 +306,8 @@ exact inputs.
 ## 8. Implementation notes {#implementation-notes}
 
 The probe SQL was validated with `EXPLAIN ANALYZE` against a production
-index (5.9 M symbols, 23.3 M references) before any engine work, and one
-of its lessons is design rather than tuning: every role — containment
+index (5.9 M symbols, 23.3 M references) before any engine work, and the
+rule it eventually forced is design rather than tuning: every role — containment
 and reference alike — is handed to the database as a materialised
 subquery, because otherwise its planner declines to drive the probe from
 the small role set and scans the main tables in full instead (seconds,
@@ -297,9 +324,9 @@ project. And `LIMIT k+1` only rescues that plan when rows exist: the
 empty answer, which is what a refinement round asks for most, has no
 early exit and is paid in full. One such probe took eleven seconds to
 return nothing. Materialising the role is a fence rather than a better
-estimate — the planner's row count for the materialised set is still off
-by an order of magnitude — but it computes the small side first and joins
-the real rows, which is all that is needed.
+estimate — the planner's row count for the materialised set was still off
+by a factor of fifty on the measured plan — but it computes the small side
+first and joins the real rows, which is all that is needed.
 
 Probes run in combined visibility through the in-RAM SQL cache, so repeat
 and refinement probes are cache hits. All id binds are canonicalised
@@ -317,8 +344,8 @@ The §1 query, byte-identical output at both ends:
 | syntax-directed baseline | 53.7 s |
 | planning from measured cardinality | ≈0.3 s |
 
-Between the two rows lie probes and refinement (§4–§5), the
-smallest-neighbour binding rule that stops a broad neighbour from costing
+Between the two rows lie probes and refinement (§4–§5), the on-demand,
+tightest-first composition that stops a broad neighbour from costing
 more than it narrows, resolved ids substituted into scopes (§7), and the
 two database details of §8 — materialised roles and canonical id binds.
 
@@ -328,6 +355,12 @@ two database details of §8 — materialised roles and canonical id binds.
 and with it the resolution threshold. `0` disables resolution outright:
 every probe caps, and every read stays predicate-driven — the state the
 rest of this page argues against, kept reachable so it can be measured.
+
+The same number is the safety cap on every discovery read — selections,
+families, derives and filters all carry `LIMIT k+1`, so "resolved" and
+"not truncated" name one threshold — and `0` lifts that bound too. What a
+read that hits it means for composition is the subject of
+[Bounded Results](/docs/design/bounded-results).
 
 ## 11. Prior art {#prior-art}
 

@@ -88,7 +88,7 @@ seed worklist: every statement that has_selection() after compute_roots
 
 while worklist is not empty:
     stmt = pop statement with smallest selection (fewest symbols first)
-    apply update_state + filter to stmt's selection
+    apply update_state to stmt's selection   (the filter is not re-applied: reads carry it)
     if stmt has no selection: skip (nothing to propagate)
     for each dependent of stmt:
         result = stmt.notify(dependent)
@@ -109,7 +109,10 @@ order-independence means a different order would reach the same fixpoint, only s
 `A.dependents`, in the role that edge was wired with:
 
 - **Child role** (parent notifying child): child derives its selection from the parent's
-  current selection. Child enters the worklist if its selection changed.
+  current selection — unless the child materialises a layer (`search`, `loc`, `layer { }`),
+  whose selection is its own rows: an empty layer is an *empty* selection and empties the
+  parent like any other empty child, and only a layer that could not run at all is "no
+  opinion". Child enters the worklist if its selection changed.
 - **Parent role** (child notifying parent): the notifying child constrains the parent
   against its own selection, keeping the parent rows that have evidence with it. Each
   child does this as it resolves, and applying the constraints one at a time is what
@@ -120,6 +123,22 @@ order-independence means a different order would reach the same fixpoint, only s
   order-independence covers the order they arrive in.
 - **User role** (provider notifying user): the user substatement derives from the provider's
   selection, as if the provider's symbols were its scope.
+
+**What never travels.** Two kinds of rows are kept out of propagation. A selection whose
+read hit the safety cap is *capped*: it neither narrows a neighbour nor is narrowed by one,
+in either role, until a retry under a neighbour's constraint brings the read below the cap
+([Bounded Results](/docs/design/bounded-results)). And rows a statement read under its
+*result budget* may only travel where they cannot narrow an independent selection: a
+neighbour that merely echoes — a bare `{ }`, weak with a weak subtree — derives from them
+freely, while a neighbour with a selection of its own clears the budget before the read,
+because pruning it against rows that stopped at a `LIMIT` would drop correct answers. Label
+resolution always clears it, since layer hashing needs an exact, order-stable id set. The
+fence sits in `notify`, where both ends of the edge are visible, and asks the weakness rule
+itself rather than restating it.
+
+Selections are shared by reference and copied on write, and a notification works on a
+snapshot of its participants, so a constraint applied mid-propagation cannot move under
+another one.
 
 **`PropagationResult`**. `notify()` returns `PropagationResult { changed: bool }` — a clean
 signal indicating whether the dependent's selection actually changed. Only changed dependents

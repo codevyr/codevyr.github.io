@@ -92,7 +92,10 @@ $$N_c \;\subseteq\; \llbracket\, P(c) \wedge \mathrm{nb}(c) \,\rrbracket \;\subs
 The left inclusion is a hypothesis rather than an observation: the
 fixpoint is approached from above, so a read may stand in for a
 denotation as the starting point only because it still contains \(N_c\)
-([semantics §7](/docs/design/semantics/#selections)). The right one is
+([semantics §7](/docs/design/semantics/#selections)) — which a read cut
+off by the safety cap may not, so such a read is flagged *capped* and
+withheld from composition
+([Bounded Results](/docs/design/bounded-results)). The right one is
 what makes the read cacheable, for a reason the fixpoint lacks: the
 read's predicate mentions only \(c\) and its immediate neighbourhood.
 Edit one statement of a long query and every command whose visibility
