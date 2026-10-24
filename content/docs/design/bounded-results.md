@@ -41,12 +41,13 @@ of the true answer. Three rules follow:
    the cap exists to avoid.
 
 **Assembly capping is a pagination invitation.** Once the symbol set is
-settled, the response bounds what each node carries: its instance list,
-its implicit edge listing, the call sites per edge. Hitting these caps
-sets *markers* (`edges_truncated`, `instances_truncated` +
-`total_instances`), never the `capped` flag and never a warning — the
-graph is right, a listing is merely paged, and the [pagination
-endpoints](#pagination) serve the rest.
+settled, the response bounds what each node carries: its instance list and
+its distinct out-edge listing. Hitting these caps sets *markers* —
+`edges_truncated`, and in a `detail=full` response `instances_truncated`
+with an exact `total_instances`; the skeleton carries only
+`instance_count`, what the result holds — never the `capped` flag and
+never a warning. The graph is right, a listing is merely paged, and the
+[pagination endpoints](#pagination) serve the rest.
 
 The boundary between the two is structural: assembly runs strictly after
 the composition fixpoint drains, so nothing capped-for-pagination can
@@ -71,16 +72,22 @@ stays small because per-node payload is independently bounded (§3) and
 \(k\) is the query's own size.
 
 The budget also reaches into SQL: leaf reads of budget-bounded verbs are
-bounded by a multiple of the budget, so a bare enumeration cannot
-materialise far more rows than the response could ever keep.
+bounded by a multiple of the budget (eight times it), so a bare
+enumeration cannot materialise far more rows than the response could ever
+keep. That bound holds only while no neighbour *consumes* the statement's
+rows: a neighbour with a selection of its own clears it, because pruning
+that neighbour against a truncated read would drop correct rows, while a
+neighbour that merely echoes — a bare `{ }` — leaves it in place
+([Evaluating the Fixpoint](/docs/design/evaluation)). A statement that
+stopped at this bound without hitting the safety cap says so with its own
+warning, naming the budget rather than the cap.
 
 ## 3. Render-side assembly cap {#render-caps}
 
 One `listing` cap (`--listing-cap`, default 100; `0` disables) bounds the
-rows in *every* per-node listing — the three listings collapsed into one
+rows in *every* per-node listing — the separate caps collapsed into one
 number after measuring that a uniform cap is safe (a hub at listing=100 is
-~380 KB; the distinct-callee bound keeps the call-site factor from
-multiplying out):
+~380 KB). Two listings remain:
 
 - **instances per node.** The engine's instances were already bounded by
   the safety cap; only serialization was not — a single kernel module's
@@ -93,14 +100,15 @@ multiplying out):
   SQL LIMIT (`row_number() OVER (PARTITION BY from_instance)` with a `+1`
   sentinel), sized to the largest `listing` any command requests; render
   trims each node to its own.
-- **call-sites per `(from, to)` pair.** A client draws one edge per pair;
-  entries beyond the first only feed that pair's call-site listing, and a
-  single hot pair was measured carrying 2,454 of a response's 2,898 edge
-  entries. The edge set is hash-ordered, so entries are sorted before
-  capping — otherwise the survivors would be iteration-order lottery.
+**Call sites per `(from, to)` pair are no longer a listing.** A client
+draws one edge per pair, and a single hot pair was measured carrying 2,454
+of a response's 2,898 edge entries — so `/query` now ships one edge per
+pair with its `occurrence_count`, and the sites themselves are paged by
+the edge endpoint. There is nothing left to cap on that path.
 
-Objects follow the same discipline: a file entry ships only if a kept
-occurrence or a kept instance references it.
+Objects follow the same discipline in `detail=full`: a file entry ships
+only if a kept call site or a kept instance references it. The skeleton
+has no objects map at all — every detail row carries its own path.
 
 The `listing` cap (like the `symbols` budget) is set per command by the
 [`limits()`](/docs/syntax#limits-verb) verb, which inherits into nested
@@ -108,7 +116,7 @@ scopes; the server flag is only the default.
 
 ## 4. The pagination channel {#pagination}
 
-What assembly withheld, two endpoints recover per node
+What assembly withheld, three endpoints recover per node and per edge
 ([HTTP API](/docs/api#references)):
 
 - `GET /v1/symbol/{id}/references` pages the references out of a symbol
@@ -120,8 +128,15 @@ What assembly withheld, two endpoints recover per node
   `limit+1` rows — 3 ms per page on a symbol with 931 instances and a
   million references, where the naive `DISTINCT ON` form took seconds
   and a 65 MB disk sort.
-- `GET /v1/symbol/{id}/instances` pages a symbol's instances by id
-  keyset with an exact total.
+- `GET /v1/symbol/{id}/instances` pages a symbol's instances in display
+  order — a keyset over `(object, offset, id)`, so pages append where the
+  UI shows them — with an exact total, optionally scoped by `?parent=` to
+  one containment context: a symbol split across several containers is
+  paged one context at a time, and the contexts partition its instances.
+- `GET /v1/edge/{from}/{to}/occurrences` pages one edge's call sites in
+  display order `(file, offset, ref id)`. An edge *is* a `(from, to)`
+  pair, so this is its own listing rather than a filter over the whole
+  references stream.
 
 Cursors are keyset, opaque, and honest about scan position: a row the
 response filters out (a self-reference has no target instance and the
@@ -149,7 +164,7 @@ entirely, since a page is poor cache currency.
 |---|---|---|---|
 | `--probe-cap` | `ASKL_PROBE_CAP` | 1000 | discovery reads and probes (§1); `0` disables resolution |
 | `--max-result-symbols` | `ASKL_MAX_RESULT_SYMBOLS` | 100 | distinct symbols per command (§2) |
-| `--listing-cap` | `ASKL_LISTING_CAP` | 100 | rows per per-node listing: instances, out-edges, call sites per pair (§3) |
+| `--listing-cap` | `ASKL_LISTING_CAP` | 100 | rows per per-node listing: instances, distinct out-edges (§3) |
 
 `0` disables the corresponding cap. Per request, `?limit=` (symbols) and
 `?listing=` override for one response; per command, the
