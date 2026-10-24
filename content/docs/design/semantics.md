@@ -381,27 +381,51 @@ tightly as `"x"` does, and makes its command constraining even though it
 is a filter. Type predicates stay structural, so bare `func` and a
 type filter both leave a command a candidate.
 
-The **propagation rule** is then iterated to a fixpoint of its own. A
-candidate becomes weak iff:
+Which candidates are weak is decided per top-level statement, on its
+**query graph**: a vertex per substatement, an undirected edge per scope
+nesting and per label use whose provider is in the same statement (a label
+from an earlier statement is an evaluated input, not a neighbour). The
+constraining substatements are always strong. For the rest:
 
-- its parent is weak (or it is top-level), **or**
-- all of its children are weak (vacuously true for a leaf).
+> A candidate is strong iff it reaches two different constraining
+> substatements along two routes that share no substatement but itself.
 
-The consequence worth internalising: a candidate **sandwiched between a
-strong parent and a strong child stays strong**. In
+Joined at the candidate, two such routes are a simple path between two
+constraining substatements, so the strong substatements of a statement are
+exactly the union of those paths — **one strong component per statement**.
+A candidate that bridges two constraining parts joins them; one that only
+hangs off them is a display echo. Plain reachability would not do: in
+`"a" { func ; "b" }` both routes from `func` leave through `"a"`, so `func`
+bridges nothing and stays weak. (A *minimum* connecting tree would be
+NP-hard to find and not unique; the union of all simple paths is unique,
+independent of evaluation order, and cheap — a two-unit max-flow per
+candidate.)
+
+The consequence worth internalising: a candidate between two constraining
+neighbours is strong, whichever side they are on. `func { "a" ; "b" }`
+asks for the functions that call both — so `func { "nonexistent" ; "b" }`
+is empty, not "b's callers": the query asks for nodes matching the
+pattern, and there are none. And a candidate **sandwiched between a
+strong parent and a strong child is strong**. In
 
 ```askl
 select func {{ "b" }}
 ```
 
 the outer command is strong (`select`), the leaf `"b"` is strong, so the bare
-middle scope — a candidate — satisfies neither weakening condition and
-constrains: only callers of `"b"` that the outer level also relates to
-survive. Drop the `select` and the outer command is a bare type selector,
-so it becomes a top-level candidate, turns weak, weakness flows down
-through the middle, and the same query becomes an echo that shows *every*
-caller. Give the outer command a name instead of `select` and it is
-strong again, by either route.
+middle scope — a candidate — has a route to each and constrains: only
+callers of `"b"` that the outer level also relates to survive. Drop the
+`select` and the outer command is a bare type selector: `"b"` is the only
+constraining substatement left, nothing has two to bridge, and the same
+query becomes an echo that shows *every* caller. Give the outer command a
+name instead of `select` and it is strong again, by either route.
+
+Labels make the graph more than a tree. In
+`func { "a" { @c } ; "b" { #c } }` — an `a` and a `b` that call the same
+callee — the label closes the cycle `func`–`a`–`@c`–`#c`–`b`–`func`, so the
+bare `@c` is strong as well as `func`. (The engine does not yet execute a
+label use whose provider is in the same statement; it rejects it as a
+circular dependency. The weakness rule is ready for it.)
 
 ### 9.2. Bindness (component-level, outcome) {#bindness}
 
@@ -447,12 +471,14 @@ materialising, which is why it is rejected rather than answered.
 Weakness otherwise keeps its defaults, and one invariant links the two
 levels: **an anchored command is never weak**. Every anchor either is a
 constraining selector or carries a name constraint, so an anchored command
-fails the candidate test of §9.1 outright and the propagation rule never
-reaches it. That is what keeps the planner and the composition talking
-about the same query: only anchored substatements probe
-([Planning §3](/docs/design/planning/#anchors)), so every neighbour a
-probe resolves is a strong one, and any constraint the planner derives
-from it is a constraint §7's conjunction imposes too.
+fails the candidate test of §9.1 outright. That is what keeps the planner and
+the composition talking about the same query. Wave 0 probes only anchored
+substatements ([Planning §3](/docs/design/planning/#anchors)); refinement
+also resolves candidates, but only through an already-resolved neighbour,
+and a weak candidate has constraining content on at most one side — so the
+neighbour it resolved through is the only one it could bind, and that one is
+already resolved. Any constraint the planner derives is a constraint §7's
+conjunction imposes too.
 
 ## Where to read more
 

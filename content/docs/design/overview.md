@@ -146,8 +146,10 @@ page that owns it.
 - **weakness** — whether a command's selection constrains its
   neighbours. A weak substatement is a display echo: it contributes
   nodes and edges, and its parent and children survive whether or not it
-  matches ([semantics §9.1](/docs/design/semantics/#weakness)). An
-  anchored command is always strong
+  matches ([semantics §9.1](/docs/design/semantics/#weakness)). A
+  non-constraining substatement that bridges two constraining ones — two
+  routes to them sharing nothing but itself — is strong, so each statement
+  has one strong component. An anchored command is always strong
   ([semantics §9.3](/docs/design/semantics/#select-bridges)).
 - **bindness** — whether a *component* demands instances at all. A
   binding component wants results and must be satisfiable; a
