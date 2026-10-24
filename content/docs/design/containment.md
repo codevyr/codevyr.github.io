@@ -100,10 +100,14 @@ includes it — and under C's preprocessor each of those compilations can see
 `#define __need_size_t` before including it and get only `size_t`.
 
 So the index takes the **union** of every translation unit's view of a file.
-Identical declarations from two compilations are one declaration — an instance
-is a declaration in the text, keyed by its symbol, kind and extent, so parsing
-the same text again adds nothing. A declaration only some compilations saw is
-added.
+Identical declarations from two compilations are one declaration — the indexer
+merges a file's parses on symbol, kind and extent, so parsing the same text
+again adds nothing, while a declaration only some compilations saw is added.
+Once numbered, though, the engine identifies an instance by its *position*:
+`(object, dfs_enter, layer)` is the unique key, and the extent is what the UI
+highlights, not identity. So two declarations at one extent that the merge
+keeps apart — one `DECL(alpha)` line included twice, declaring `alpha_f` and
+`alpha_d` — stay two rows with two positions.
 
 The alternative, keeping whichever compilation reached the file first, loses by
 arrival order, and it loses *silently* in a specific way: the symbol table is
@@ -179,8 +183,12 @@ each would use 18.5% of a 32-bit range, and that is too little headroom for a
 number that only grows.
 
 Containment never crosses objects, so every predicate is scoped by
-`object_id` and every read is one btree range scan on `(object_id, dfs_enter)`.
-No recursion, no GiST, no anti-join.
+`object_id` and every mode predicate is one btree range scan on
+`(object_id, dfs_enter)`. No recursion, no GiST. The one anti-join left is on
+the reference path: when a scope is answered through references in `nested`
+or the default mode, a `NOT EXISTS` over the same DFS numbers decides which
+container a reference belongs to, so that a narrower container does not
+shadow its parent's — it reads intervals, never extents.
 
 ### Depth
 
@@ -270,8 +278,10 @@ wide, because nothing is ever placed inside one — a reference sits below every
 slot, and an ephemeral row may not own another. That makes laminarity
 *automatic*: width-1 integer intervals cannot partially overlap, so two rows
 under one owner, from whatever batches, are always siblings and never nest by
-accident. The gap holds 1022 of them, which is more than a query may return, so
-exhausting it is unreachable rather than a caveat.
+accident. The gap holds 1022 of them per owner — above the default read cap
+(1000) and `search()`'s default `limit` (500 per project), so a query at the
+defaults cannot exhaust it. A raised `search(limit=…)` can: the 1023rd match
+under one owner repeats a position, and the identity index drops it silently.
 
 **Its owner is the innermost *unfolded, persistent* instance whose extent
 contains it.** Each word is doing work:
@@ -299,8 +309,13 @@ contains it.** Each word is doing work:
 The row then takes its depth and fold depth from that owner, so it behaves
 exactly as a symbol at that position would.
 
-Two accepted limitations:
+Three accepted limitations:
 
+- `X { search(…) }` searches X's *extent*, not X's subtree. A scoped search
+  fuses the scope's byte ranges into its own corpus, so a declaration whose
+  range lies outside its container's (§2) is reached by `X { unnest }` but
+  its text is not by `X { search(…) }`. Extents stop being containment; they
+  stay load-bearing for search.
 - `search("a") { search("b") }` returns nothing rather than the nested reading.
   The two searches materialise into separate layers, and letting one site the
   other is what would make a cached layer depend on its neighbour. The fix is
@@ -324,14 +339,20 @@ object, before anything is stored:
   just as silently as an empty one;
 - `dfs_enter` is unique — the DFS order is total;
 - intervals nest, never straddle;
-- `nesting_level` equals the actual depth;
+- `nesting_level` equals the actual depth, and a root instance has
+  `fold_depth` 0;
 - `fold_depth` is the parent's plus its `folded` flag;
-- every ref's `dfs_enter` falls strictly inside some instance interval.
+- every ref's `dfs_enter` falls strictly inside some instance interval, and
+  the ref's `nesting_level` and `fold_depth` are its owner's plus one and
+  plus the owner's `folded` flag.
 
-A note on that last one, because the cheap version of it is wrong: a ref may
-legitimately sit after a nested instance has closed while an ancestor is still
-open, so it must be tested against the top-level intervals, not against the
-nearest instance below it.
+A note on the containment check, because the cheap version of it is wrong: a
+ref may legitimately sit after a nested instance has closed while an ancestor
+is still open, so it must be tested against the top-level intervals, not
+against the nearest instance below it.
+
+A failing object rejects the upload with HTTP 400 naming it
+(`object <local_id>: …`); nothing of that chunk is stored.
 
 An index produced before the containment tree existed has every interval at
 `[0,0)` and fails the first check, so this doubles as the guard against an
