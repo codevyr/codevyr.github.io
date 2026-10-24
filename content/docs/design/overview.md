@@ -153,9 +153,10 @@ page that owns it.
   binding component wants results and must be satisfiable; a
   non-binding one is structure or directive, and is silently empty
   ([semantics §9.2](/docs/design/semantics/#bindness)).
-- **result budget** — the per-STATEMENT cap on distinct symbols a
-  response ships (default 100, `?limit=`); statements never share one
-  budget ([Bounded Results](/docs/design/bounded-results)).
+- **result budget** — the per-command cap on distinct symbols a
+  response ships (default 100, `?limit=`, or `limits(symbols=)` on the
+  command); commands never share one budget
+  ([Bounded Results](/docs/design/bounded-results)).
 - **capped (selection)** — a selection whose discovery read hit the
   safety cap: flagged, excluded from composition, and warned about —
   distinct from assembly truncation, which only pages a listing
@@ -208,8 +209,8 @@ page that owns it.
 - **REFS**, **HAS** — the two edge kinds a nesting can ask for: a
   **REFS** edge is a reference (one symbol calls or uses another), a
   **HAS** edge is containment (a module contains a function). A scope
-  written `{ }` with no relationship modifier asks for either; `@has` and
-  `@refs` pin it. Which kind a nesting asks for is what its evidence
+  written `{ }` with no relationship modifier asks for either; `has`,
+  `refs` or `derive(type=…)` pin it. Which kind a nesting asks for is what its evidence
   relation stands for. What *contains* what is not read off source
   ranges — it cannot be, for anything a macro generates — but from a
   depth-first interval the indexer writes down
@@ -278,8 +279,8 @@ page that owns it.
 
 The chapter is written to be read in order — each page's problem is
 created by the one before it — but every page opens by stating that
-problem, so it can also be entered directly. Read the first four for
-what a query *means* and how it is evaluated; the next four for how
+problem, so it can also be entered directly. Read the first group for
+what a query *means* and how it is evaluated; the second for how
 results are stored and reused, which is where the design is least
 obvious; the last for one verb end to end, in SQL and in milliseconds.
 
@@ -291,6 +292,9 @@ obvious; the last for one verb end to end, in SQL and in milliseconds.
 - **[Queries and their Meaning](/docs/design/semantics)** — how a bag of
   verbs folds into one predicate and one populate, and why a query's
   answer is a fixpoint of mutually constraining selections.
+- **[Filter Expressions and the Slot Cascade](/docs/design/filter-expressions)**
+  — `or`, `and`, `not` inside one dimension, record merge across
+  dimensions, and the inheritance law they make explicit.
 - **[Evaluating the Fixpoint](/docs/design/evaluation)** — the phases a
   statement runs, the monotone worklist that composes neighbouring
   substatements, and why it terminates.
@@ -301,6 +305,9 @@ obvious; the last for one verb end to end, in SQL and in milliseconds.
   capping (discovery warns, assembly paginates), the per-command
   result budget, and the endpoints that recover what a response
   withheld.
+- **[Containment](/docs/design/containment)** — why source ranges cannot
+  say what contains what, and the depth-first interval, nesting level
+  and fold depth that do.
 
 **Storing and reusing results**
 
