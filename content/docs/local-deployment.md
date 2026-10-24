@@ -100,14 +100,22 @@ The index file is now inside the `askld` container at `/tmp/index-kubernetes.pb`
 
 ```sh
 docker compose exec -T askld /usr/local/bin/askld index upload \
-  --file /tmp/index-kubernetes.pb \
+  /tmp/index-kubernetes.pb \
   --url 127.0.0.1:8080 \
   --token "$ASKL_TOKEN"
 ```
 
-If you have `askld` available on the host, you can run the same command directly without `docker compose exec`.
+The index path is the positional argument: a single `.pb` file, or a directory
+of them from a multi-file indexer run. If you have `askld` available on the host,
+you can run the same command directly without `docker compose exec`.
 
 Uploads can take a while for large indexes. The CLI default timeout is 180 seconds; pass `--timeout` if you need more time. If you see an upload size error, increase `ASKL_MAX_UPLOAD_BYTES` in `compose.local.yaml`.
+
+Re-running the upload meets the project you already created: pass `--force` to
+delete the existing project of that name first, or `--project` to upload under
+another name. `--window` sets how many chunks are in flight at once.
+`askld index get-project <name>` and `delete-project --name <name>` round out
+the set, with the same `--url`/`--token` arguments.
 
 Verify the project is listed:
 
