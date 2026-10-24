@@ -35,7 +35,7 @@ DECLARE
     gap_bytes int;
     emitted int := 0;
 BEGIN
-    IF nlen = 0 THEN RETURN; END IF;
+    IF haystack IS NULL OR nlen = 0 THEN RETURN; END IF;
     LOOP
         EXIT WHEN cur_char > length(haystack) OR emitted >= max_n;
         found := position(needle in substring(haystack from cur_char));

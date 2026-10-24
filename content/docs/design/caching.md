@@ -52,10 +52,11 @@ again. Neither substitutes for the other.
 ## 3. Tier 1: reads, in process memory {#sql-result-cache}
 
 The read path (`cached_load`) is a thin proxy in front of the database:
-it builds a read query with its binds, hashes them into a key, and serves
-the cached row set on a hit. It is a byte-bounded LRU, evicting once the
-cache exceeds `ASKL_SQL_CACHE_BYTES` and degrading to a plain database
-load when that budget is `0`.
+it builds a read query with its binds, hashes them into a key — together
+with the row type it decodes into — and serves the cached row set on a
+hit. It is a byte-bounded LRU, evicting once the cache exceeds
+`ASKL_SQL_CACHE_BYTES` and degrading to a plain database load when that
+budget is `0`.
 
 What makes it correct is that **ephemeral-layer churn needs no
 invalidation at all** — which matters, since there is a great deal of it.
@@ -67,9 +68,25 @@ the key — a miss, never a stale hit against an entry built under a
 different layer set. Layer ids are never reused, so a dead layer's
 entries can never be requested again and age out through the LRU.
 
-Mutations to the *persistent* corpus are the exception, and the only
-thing that ever clears this cache: finalising an upload or deleting a
-project clears it wholesale, on commit. An epoch counter closes the race
+That rule alone would make the persistent corpus pay for the churn: every
+new ephemeral layer in view would miss on reads that are mostly persistent
+rows. So the hot path, `cached_load_partitioned`, runs a read as **two
+branches**: a chain-free *persistent* branch, whose binds name only the
+root layers and which therefore keeps hitting across queries whatever has
+been materialised since, and an *ephemeral* branch over the roots plus the
+query's own chain, guarded by the id sign so it contributes ephemeral rows
+only. The two run concurrently and merge with a row-key dedup; a query
+with an empty chain short-circuits to the persistent branch. Filters whose
+answer depends on the chain as a whole — the containment and outer-parent
+filters, which must see persistent and ephemeral rows together to decide
+who is innermost — are *chain-dependent* and fall back to one combined
+read.
+
+Mutations to the *persistent* corpus are what clears this cache, and
+every one of them does: creating a project, each symbol, object or content
+chunk of an upload, finalising it, deleting a project — a guard on the
+mutation path clears on commit and on rollback alike — plus an explicit
+`/admin/clear-cache`. An epoch counter closes the race
 with an in-flight load — a load snapshots the epoch before its database
 read, the clear bumps it, and a put carrying a stale snapshot is rejected
 — so a read issued before the mutation can never land in the cache after
@@ -144,7 +161,8 @@ are stranded rather than aliased.
 An ephemeral entry is meant to die, and two mechanisms retire entries by
 age: every hit bumps `last_used` through the upsert's
 `ON CONFLICT DO UPDATE`, so hot entries stay warm for free, and a TTL
-sweep drops entries whose `last_used` has fallen outside the window. What
+sweep every ten minutes drops entries idle for an hour (both fixed in the
+server, with no knob). What
 a delete takes with it — child layers, and every data row tagged with the
 layer — belongs to the layer model
 ([Layers §8](/docs/design/layers/#lifetime-and-gc)). One coupling is this
@@ -152,10 +170,13 @@ page's own: a shard's `root_shard_id` ties it to the root shard it was
 cached against, so it can never outlive, and then mis-hit against, a
 recreated root shard of a different incarnation.
 
-Age is not an invalidation, though, and **re-upload is**. Finalising a
-project upload — the transaction that flips its status to complete — also
-purges the ephemeral cache, dropping every non-canary layer atomically
-with the upload commit, which keeps the correctness argument to one
+Age is not an invalidation, though, and **replacing the corpus is**.
+Finalising a project upload — the transaction that flips its status to
+complete — purges the ephemeral cache, dropping every unprotected layer
+(roots and the canary stay) atomically with the upload commit; deleting a
+project and clearing a zombie upload purge the same way, and the purge
+takes an exclusive lock on `index.layers` so a populate in flight cannot
+slip a new layer past it. That keeps the correctness argument to one
 sentence: an ephemeral layer only ever reflects a corpus state that was
 current when it was populated, and it goes the moment that state changes.
 
