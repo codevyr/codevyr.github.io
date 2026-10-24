@@ -307,6 +307,11 @@ $$N_c \;\subseteq\; \text{read} \;\subseteq\; D(c)$$
 The left inclusion is what lets the engine begin the descent at the reads
 rather than at the denotations: a narrowing iteration lands on the
 greatest fixpoint only if it starts above it, and every read is above it.
+It holds for a read that ran to completion; a read cut off by the safety
+cap is an arbitrary subset that may have lost members of \(N_c\), so the
+engine flags such a selection as *capped* and keeps it out of the
+iteration until a retry completes
+([Bounded Results](/docs/design/bounded-results)).
 The right one is why a read is worth caching where a selection is not
 ([From Result to Cache §5](/docs/design/derivation/#upper-bound)), and
 making it tight is the whole business of

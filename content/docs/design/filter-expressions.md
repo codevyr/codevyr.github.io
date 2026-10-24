@@ -4,10 +4,12 @@ description: "Boolean operators inside one dimension, record merge across dimens
 weight: 107
 ---
 
-**Status: adopted design, not yet implemented.** This page fixes the
-semantics of the boolean operators (`or`, `and`, `not`, parentheses)
-before any grammar work lands, together with the inheritance law they
-force us to make explicit. It extends
+**Status: adopted 2026-08-22 and implemented in the engine that week** —
+the slot cascade, `or`/`and`/`not` with parentheses, the positive
+`package(...)` filter and typed arguments all shipped; the
+[syntax reference](/docs/syntax/#boolean-operators) has the user-facing
+rules. This page fixes the semantics of the boolean operators together
+with the inheritance law they force us to make explicit. It extends
 [Queries and their Meaning](/docs/design/semantics) — in particular the
 per-tag override/accumulate fold of
 [§2](/docs/design/semantics/#assembling-the-command) — from a table of
@@ -15,17 +17,17 @@ per-verb behaviours into one general law.
 
 ## 1. The problem {#the-problem}
 
-Today the language has conjunction by juxtaposition (filters in one
-statement), disjunction only between juxtaposed selectors, and negation
-only as `ignore(...)`. Three things are inexpressible or awkward:
+Before this design the language had conjunction by juxtaposition (filters
+in one statement), disjunction only between juxtaposed selectors, and
+negation only as `ignore(...)`. Three things were inexpressible or awkward:
 
 - *disjunction over filters*: "bar in project a **or** project b",
   "foo that is a func **or** a method";
 - *general negation*: "everything except the test project";
 - *a stated inheritance rule*: `func "foo" { "bar" }` makes `bar` a
   func, `func { method "bar" }` makes `bar` a method — behaviour that
-  exists in the implementation as per-verb special cases
-  (`DeriveMethod`, per-tag override) but is documented nowhere as a
+  existed in the implementation as per-verb special cases
+  (`DeriveMethod`, per-tag override) but was documented nowhere as a
   single law.
 
 Adding operators naively reopens every one of these as a question:
@@ -60,14 +62,15 @@ side-effecting always-true primaries. The result is the classic
 `find . -name '*.c' -o -name '*.h' -print` trap (prints only the `.h`
 files). askl keeps non-predicate verbs out of the algebra entirely.
 
-A few verbs contribute to two aspects: `file` and `dir` are predicates
-*and* switch the scope's relationship context to containment. Inside a
-compound expression, only the predicate contribution of a verb is
-read; its other aspects are suppressed. `file or dir { ... }` leaves
-the scope on the default `REFS|HAS` — write `has` explicitly if
-containment is meant. The alternative ("apply the side effect when all
-disjuncts agree") is exactly the kind of condition a reader cannot
-check locally, and is rejected.
+A verb may carry more than one aspect — `label` binds, `preamble` sets
+the environment — and inside a compound expression only the predicate
+contribution of a verb is read; its other aspects are suppressed. Type
+selectors have no relationship aspect at all: `file or dir { ... }`
+leaves the scope on the default, either edge kind, exactly as
+`file { ... }` does — write `has` explicitly if containment alone is
+meant. The alternative ("apply a side effect when all disjuncts agree")
+is exactly the kind of condition a reader cannot check locally, and is
+rejected.
 
 ## 3. The predicate record: dimensions and slots {#dimensions-and-slots}
 
@@ -123,6 +126,12 @@ are observably different, and deliberately so: an all-anchor
 disjunction, while juxtaposed anchors remain separate branches with
 per-branch probes. `"a" or "b"` says *either is fine, don't warn me*;
 `"a" "b"` says *each of these should exist*.
+
+**Two shapes are rejected rather than read charitably.** An `or` whose
+operands are not all anchors or all filters — `"foo" or func` — has no
+reading as one branch or one slot, half of it selecting and half
+constraining, and is refused with a span. So is `not not x`: double
+negation is removed, not evaluated.
 
 ## 4. Inheritance: the slot cascade {#slot-cascade}
 
@@ -195,22 +204,24 @@ same thing.
 Two things the cascade deliberately cannot express: cancelling an
 accumulated exclusion (`not ...` only accumulates), and a whole-record
 "start fresh" (CSS `all: unset`). Both remain future work; if either
-becomes pressing, a dedicated reset verb is the answer, and the
-never-implemented `scope(isolated=)` stub should be removed or
-finished as part of that decision.
+becomes pressing, a dedicated reset verb is the answer. (The
+never-implemented `scope(isolated=)` stub that once held that place has
+been removed.)
 
 ## 6. `not` everywhere; `ignore` retires {#not-and-ignore}
 
 `not` applies to any predicate atom or parenthesised predicate group:
 
-- `not "foo"` ≡ `ignore("foo")`
+- `not "foo"` ≡ `ignore("foo")` on a simple name
 - `not (g"mlx5_*" and package("drivers/net"))` ≡
-  `ignore("mlx5_*", package="drivers/net")` — this requires promoting
-  the package test to a first-class positive filter `package(...)`
-  (today it exists only inside `ignore`), which is a uniformity win on
-  its own.
+  `ignore(g"mlx5_*", package="drivers/net")` — which is what promoted
+  the package test to a first-class positive filter, `package(...)`, a
+  uniformity win on its own.
 
-`ignore` remains as a deprecated alias.
+`ignore` stays, and not as an alias: `ignore("x")` excludes on any path
+*label* `x` — `"foo.bar" ignore("foo")` is empty — where `not "x"`
+negates the leaf name only. The two coincide on simple names, which is
+why they read as aliases.
 
 **Closed-world honesty.** Negation is evaluated per dimension against
 everything indexed: `not func` matches methods — and macros, files,
@@ -241,10 +252,17 @@ appear in a filter expression").
 or_kw  = @{ "or"  ~ !XID_CONTINUE }
 and_kw = @{ "and" ~ !XID_CONTINUE }
 not_kw = @{ "not" ~ !XID_CONTINUE }
-atom            = _{ ("(" ~ compound_filter ~ ")") | verb }   // verb = today's rule
-compound_filter = { not_kw* ~ atom ~ ((or_kw | and_kw) ~ not_kw* ~ atom)* }
+group           = { "(" ~ nl ~ compound_expr ~ nl ~ ")" }   // newlines allowed inside
+comp_atom       = _{ group | verb }                          // verb = today's rule
+compound_expr   = _{ not_kw* ~ comp_atom ~ (nl ~ (or_kw | and_kw) ~ nl ~ not_kw* ~ comp_atom)* }
+compound_filter = { not_kw* ~ comp_atom ~ ((or_kw | and_kw) ~ nl ~ not_kw* ~ comp_atom)* }
 statement       = { (compound_filter* ~ scope) | compound_filter+ | scope }
 ```
+
+Outside parentheses a *trailing* operator continues the statement onto
+the next line, while a newline before an operator terminates it — a line
+may not begin with `or`/`and`, and the builder says so with a span rather
+than letting the remainder parse as a fragment.
 
 Precedence `not` > `and` > `or` lives in a Pratt-parser table on the
 flat rule, not in layered grammar rules (which parse the same language
