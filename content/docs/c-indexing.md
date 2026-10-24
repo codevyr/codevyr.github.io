@@ -155,12 +155,41 @@ that libclang already performs is what states it. See
 [Containment](/docs/design/containment/) for the model and
 [Traversal modes](/docs/syntax/#traversal-modes) for what it buys a query.
 
+**Using a macro is a reference, not an instance.** A macro is declared once,
+at its `#define`; every use is one site naming it, recorded as a reference
+owned by the enclosing function, at that function's nesting level and fold
+depth. The indexer emits no *expansion* instances (the `EXPANSION` instance
+type stays in the wire format so older indices still parse); dropping them
+removed 37.8% of criu's instances and changed no reference. What a macro
+*generates* — declarations that exist only because it expanded — is recorded
+as ordinary instances marked `folded`, with `fold_depth` counting the folded
+ancestors above; that boundary is where the default traversal mode stops.
+
+**A header is the union of its parses.** A header compiled by several
+translation units may show each a different set of declarations. The index
+keeps the union: identical declarations (same symbol, kind and extent) merge
+into one, and a declaration only some compilations saw is added — see
+[Containment](/docs/design/containment/) for why the alternative loses
+silently.
+
 Each instance also carries up to three optional spans inside its extent: the
 **name** token, the **signature**, and the **content**. They are what let the
 UI highlight an identifier or show a multi-line C signature correctly, and they
 are stored rather than derived, because K&R declarations, attributes between
 the signature and the body, and trailing return types all break the
-subtraction.
+subtraction. References carry their own position in the same depth-first
+order, their nesting level and fold depth, and optionally a *full span* for
+the whole referencing construct — `printk(foo)`, where the name span covers
+only `printk`.
+
+**If the upload is rejected.** askld validates each object's tree before it
+stores anything: non-empty intervals at least one stride wide, unique
+`dfs_enter`, nesting without straddling, consistent `nesting_level` and
+`fold_depth`, every reference inside an instance. A malformed object fails the
+upload with HTTP 400 naming it. An index produced before the containment tree
+existed fails the first check, since every interval is `[0,0)` — re-run the
+indexer. There is no backfill, by design: the old data cannot express the
+tree, so inventing one would bake in a wrong answer.
 
 Files pulled in by `--include-git-files` that no compile command covers are
 still indexed as file objects, so `search()` reaches documentation, scripts and
