@@ -318,7 +318,10 @@ own and is rejected with a hint instead of silently returning an empty result.
 > **Weakness is inferred, not written.** There is no weak marker: bare
 > `{ }` scopes and commands with only filters are non-constraining
 > *echoes* by default, and `select` is what makes a command constraining.
-> See [Weakness and Bindness](/docs/design/semantics/#weakness-and-bindness).
+> The exception is a bridge: a non-constraining command between two
+> constraining parts of a statement constrains, so `func { "a" ; "b" }`
+> finds functions calling both. See
+> [Weakness and Bindness](/docs/design/semantics/#weakness-and-bindness).
 
 ## Boolean Operators
 
@@ -1187,7 +1190,11 @@ func("handler") { "validate" "log" }
 ```
 
 A sibling that matches nothing empties the conjunction, exactly as a lone child
-would: `func("handler") { "validate" ; "typo" }` returns nothing at all.
+would: `func("handler") { "validate" ; "typo" }` returns nothing at all. The
+parent need not have a name: `func { "validate" ; "typo" }` returns nothing
+too, because a bare `func` between two constraining siblings joins them into
+one query — the functions calling both — rather than leaving two independent
+answers.
 
 A `;` between **top-level** statements is not this operator. It ends the
 statement rather than adding a condition; both statements run and their results

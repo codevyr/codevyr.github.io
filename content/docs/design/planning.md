@@ -230,22 +230,20 @@ each of them is a separate necessary condition, so binding one is a
 relaxation and never an overreach.
 
 Refinement waves also probe pure-constraint substatements, which may be
-weak — a top-level `func { … }` is one — and **the binding step does not
-consult weakness**. Two facts cover most of the gap. A weak substatement
-has no anchor, so it resolves only through a neighbour that is already
-resolved, and by permanence (Theorem 3) that neighbour never binds it
-back; and when a weak statement's resolved set is used to resolve one of
-its own children, that is supplying, which the weakness rule allows. The
-case that remains is a weak statement resolved through one neighbour and
-then bound by another that is still capped: `func { "a" ; g"x*" }` with
-`x*` too common to resolve on its own. There the planner narrows `x*` to
-what the callers of `a` reach, where the worklist — which never lets a
-weak parent narrow — would have left it capped and warned. Measured on
-ucx, `func { "ucp_worker_create" ; g"ucp_*" }` answers 31 symbols with no
-warning while `func g"ucp_*"` alone caps. Nothing false is shown, but the
-resolved set undershoots the selection the semantics prescribe, so for
-this shape Theorem 2 is not what the engine enforces until binding asks
-the weakness rule.
+weak, and the binding step does not consult weakness — it does not need to.
+A weak substatement has no anchor, so it resolves only through a neighbour
+that is already resolved. And it is weak precisely because it reaches
+constraining substatements along at most one route
+([semantics §9.1](/docs/design/semantics/#weakness)): every constraining
+neighbour it could later bind lies on the side it resolved through, where
+the neighbour it bound is already resolved and, by permanence (Theorem 3),
+is never bound back. Using a weak statement's resolved set to resolve
+something further along that route is supplying, which the weakness rule
+allows. A candidate with routes to two constraining substatements — the
+bare `func` in `func { "a" ; g"x*" }` — is strong, so binding it is a
+conjunct of the composition like any other: on ucx,
+`func { "ucp_worker_create" ; g"ucp_*" }` answers the 31 symbols the
+query asks for, and `func { "nonexistent" ; g"ucp_*" }` answers nothing.
 
 *Proof sketch, by induction on the wave in which a set was resolved.*
 Wave 0: \(\mathrm{res}(c) = \mathrm{ids}(D(c))\) by Theorem 1, and
