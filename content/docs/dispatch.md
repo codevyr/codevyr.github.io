@@ -110,7 +110,7 @@ Traces: `vfs_read` &rarr; calls through `file_operations.read` &rarr; implementi
 type("file_operations") has { field }
 ```
 
-Returns all function pointer fields declared in `file_operations`. Works because `field` (level 1) is below `type` (level 2) in the hierarchy.
+Returns all function pointer fields declared in `file_operations`. Works because a struct's fields sit inside it in the containment tree.
 
 ### Who calls through a field? (reverse)
 

@@ -65,44 +65,45 @@ A scope `{` must be on the **same line** as its verb to attach:
 
 ### 2. Symbol Types
 
-Askl supports eight symbol types organized in a hierarchy:
+Askl knows eight symbol types:
 
-| Type | Level | Description |
-|------|-------|-------------|
-| `field` | 1 | Struct fields, interface methods (dispatch points) |
-| `function` | 2 | Functions, methods, procedures |
-| `type` | 2 | Structs, interfaces, type declarations |
-| `data` | 2 | Package-level variables, constants |
-| `macro` | 2 | C/C++ preprocessor macros (`#define`) |
-| `file` | 3 | Source files |
-| `module` | 4 | Packages, modules, namespaces |
-| `directory` | 5 | Filesystem directories |
+| Type | Description |
+|------|-------------|
+| `field` | Struct fields, interface methods (dispatch points) |
+| `function` | Functions, methods, procedures |
+| `type` | Structs, interfaces, type declarations |
+| `data` | Package-level variables, constants |
+| `macro` | C/C++ preprocessor macros (`#define`) |
+| `file` | Source files |
+| `module` | Packages, modules, namespaces |
+| `directory` | Filesystem directories |
 
-Higher-level symbols can **contain** lower-level symbols (e.g., a module contains files, which contain functions). Fields are the lowest level — they can be contained by types, functions, files, and modules. Functions, data, types, and macros share the same level.
+A type says what a symbol *is*, not where it sits. Which symbol **contains** which — a module its files, a file its declarations, a struct its fields, a function a closure declared inside it — is a tree the indexer writes down and a scope reads; see [Containment](/docs/design/containment/) for the model and [Traversal modes](#traversal-modes) for how far a scope descends it.
 
 ### 3. Relationships
 
-Askl supports two types of relationships between symbols:
+A scope asks for one of two edge kinds between a parent and its children:
 
-#### Reference Relationships (`refs`, default)
+#### Reference Relationships (`refs`)
 
-Shows what symbols **call** or **reference** each other. This is the default relationship type.
+What symbols **call** or **reference** each other.
 
 ```askl
-"foo" { "bar" }        /* Functions foo calls (references) */
-"foo" refs { "bar" }   /* Explicit refs (same as above) */
+"foo" refs { "bar" }   /* bar, if foo references it */
 ```
 
 #### Containment Relationships (`has`)
 
-Shows what symbols **contain** other symbols based on source code location.
+What symbols **contain** other symbols, read from the indexer's containment tree.
 
 ```askl
-mod("mypackage") { func }   /* Functions contained in module */
-file("/main.go") { "handler" }  /* handler function in main.go */
+mod("mypackage") has { func }      /* Functions contained in module */
+file("/main.go") has { "handler" } /* handler, if main.go declares it */
 ```
 
-> **Note:** Container types (`dir`, `file`, `mod`) implicitly set both containment and reference relationships for their children. You don't need explicit `has` when using them — `mod("pkg") { func }` works directly.
+#### The default is either {#default-relationship}
+
+A scope with no `has`, `refs` or `derive(...)` on it accepts **either** kind: `"foo" { "bar" }` keeps `bar` whether `foo` references it or contains it. That is why `mod("pkg") { func }` and `file("/main.go") { "handler" }` work without `has`, and why `"foo" { "bar" }` reads as "foo calls bar" when both are functions, which cannot contain one another. Once `has` or `refs` is written it inherits into nested scopes until the other is written ([Relationship Modifiers](#relationship-modifiers)). Type selectors — `func`, `mod`, `file`, … — never change the relationship; they only constrain the symbol type.
 
 ### 4. Pattern Matching
 
@@ -271,7 +272,7 @@ own and is rejected with a hint instead of silently returning an empty result.
 
 | Verb | Description |
 |------|-------------|
-| `ignore("pattern")` | Exclude symbols matching the pattern (alias for `not "pattern"`) |
+| `ignore("pattern")` | Exclude symbols whose path carries the pattern, on any label (see [ignore](#ignore-symbol-filtering)) |
 | `project("name")` | Only include symbols from a specific project |
 | `package("path")` | Only include symbols strictly under a package path |
 | `filter("kind", "value")` | Generic filter (see below) |
@@ -367,6 +368,10 @@ Inside an expression a verb contributes only its predicate — `file or dir
 > not `func` AND a grouped name: a `(` after a verb name binds as
 > arguments.
 
+Two shapes are rejected outright rather than guessed at: `not not x`
+(remove both), and a line that *begins* with `or` or `and` — an operator
+continues a statement onto the next line only when it ends the previous one.
+
 ## Type Selectors
 
 Type selectors target specific symbol types. As explained above, they act as **selectors** (with a name) or **filters** (without a name).
@@ -386,7 +391,7 @@ so the old `filter=` plan toggle is gone.
 
 ### func
 
-Selects function symbols. Explicitly sets the relationship to **references only** — this overrides any inherited containment from container parents.
+Selects function symbols.
 
 ```askl
 func("handler")         /* Functions matching "handler" */
@@ -397,7 +402,7 @@ file("/main.go") { func }  /* Functions in main.go (filter mode) */
 
 ### type
 
-Selects type symbols (structs, interfaces, type declarations). Like `func`, explicitly sets the relationship to **references only**.
+Selects type symbols (structs, interfaces, type declarations).
 
 ```askl
 type("Request")          /* Types matching "Request" */
@@ -411,7 +416,7 @@ type("Request") { type }  /* Types referenced by Request */
 
 ### data
 
-Selects data symbols (package-level variables and constants). Like `func` and `type`, explicitly sets the relationship to **references only**.
+Selects data symbols (package-level variables and constants).
 
 ```askl
 data("Debug")            /* Data symbols matching "Debug" */
@@ -424,7 +429,7 @@ mod("config") { data }   /* Data symbols in module (filter mode) */
 
 ### macro
 
-Selects macro symbols (C/C++ preprocessor `#define` directives). Like `func` and `type`, explicitly sets the relationship to **references only**. Macros are indexed with their body range, so function calls inside a macro body become children of the macro by offset containment.
+Selects macro symbols (C/C++ preprocessor `#define` directives). The calls written in a macro's body are references recorded inside the macro's own containment interval, so `macro("LOG") { func }` lists them; a macro that calls a macro records only what its own body names, one `#define` per layer (see [Traversal modes](#traversal-modes)).
 
 ```askl
 macro("LOG")              /* Macros matching "LOG" */
@@ -437,7 +442,7 @@ macro("LOG") { func }    /* Functions called inside LOG's body */
 
 ### field / method
 
-Selects field symbols — struct members that act as function pointer dispatch points (C) or interface method signatures (Go). `method` is an alias for `field`. Like `func`, explicitly sets the relationship to **references only**.
+Selects field symbols — struct members that act as function pointer dispatch points (C) or interface method signatures (Go). `method` is an alias for `field`.
 
 Field names use compound naming: `struct_name.field_name` (e.g., `file_operations.read`). A simple name like `field("read")` matches any field whose last component is "read" across all structs, while `field("file_operations.read")` uses pattern matching for a precise match.
 
@@ -454,7 +459,7 @@ type("file_operations") has { field }         /* All fields of a struct */
 
 ### mod
 
-Selects module/package symbols. Implicitly sets **refs+has** for children, so contained symbols are found without explicit `has`.
+Selects module/package symbols. A bare scope under it accepts either edge kind, so contained symbols are found without `has`.
 
 ```askl
 mod("util")              /* Modules matching "util" */
@@ -467,7 +472,7 @@ mod("pkg") { func }      /* Functions in module (no has needed) */
 
 ### file
 
-Selects file symbols. Implicitly sets **refs+has** for children.
+Selects file symbols.
 
 ```askl
 file("main.go")          /* Files whose last component is "main_go" (leaf match) */
@@ -480,7 +485,7 @@ dir("/src") { file }     /* Files in /src directory */
 
 ### dir
 
-Selects directory symbols. Implicitly sets **refs+has** for children.
+Selects directory symbols.
 
 ```askl
 dir("cmd")               /* Directories named "cmd" (leaf match) */
@@ -508,7 +513,7 @@ At root level (no parent type selector), the default is **all types** — no fil
 | `file` | functions, modules | yes |
 | `dir` | directories, files | yes |
 
-Bare type selectors (without a name) inherit by default — their type filter propagates into all descendant scopes. Named type selectors like `func("foo")` do **not** inherit.
+Bare type selectors (without a name) inherit by default — their type filter propagates into all descendant scopes. Named type selectors like `func("foo")` do **not** inherit. Either default can be overridden with `inherit=`: `mod("x", inherit=true) { … }` carries a named selector into nested scopes, and `func(inherit=false) { … }` keeps a bare one to its own scope.
 
 ```askl
 mod("mypackage") {}      /* Children include modules AND functions */
@@ -518,29 +523,34 @@ data { { "bar" } }       /* data filter inherits — inner scope also filters to
 data { any { "bar" } }   /* any removes inheritance — inner scope matches all types */
 ```
 
-### Container Types and Implicit Relationships
+### Scopes without a relationship modifier
 
-Container types (`dir`, `file`, `mod`) automatically set both containment and reference relationships for their children, with inheritance. This means:
+A scope that carries no `has`, `refs` or `derive(...)` — and inherits none from an enclosing scope — accepts either edge kind ([the default is either](#default-relationship)). Type selectors do not change that:
 
 ```askl
-/* These are equivalent: */
+/* Files inside /src */
 dir("/src") { file }
-dir("/src") has { file }
 
-/* func overrides back to refs-only: */
+/* Functions the module contains OR references; `has` keeps only the contents */
+mod("pkg") { func }
+mod("pkg") has { func }
+
+/* "bar" is kept if main references it or declares it — its callees, in practice */
 dir("/") { func("main") { "bar" } }
-/* func explicitly sets REFS, so "bar" is found via call graph, not containment */
+
+/* Pin one kind where either would be ambiguous */
+mod("amdgpu") has { func refs { "drm_dev_enter" } }
 ```
 
 ## Relationship Modifiers
 
 ### refs (References)
 
-Explicitly use reference-based relationships. This is the default. Inherits to all descendants until overridden.
+Pins the scope to reference edges. Inherits to all descendants until overridden.
 
 ```askl
 "foo" refs { "bar" }  /* foo calls bar */
-"foo" { "bar" }       /* Same - refs is default */
+"foo" { "bar" }       /* either kind — the same answer for two functions */
 ```
 
 Use `refs` to override an inherited `has`:
@@ -559,7 +569,7 @@ has { func }              /* Functions contained in parent */
 has { "foo" { "bar" } }   /* HAS propagates: bar also found via containment */
 ```
 
-Containment is determined by source code byte ranges: if symbol A's range contains symbol B's range, and A's type level is higher than B's, then A contains B.
+Containment is read from the depth-first interval the indexer records for every declaration — not from byte ranges or symbol types, which cannot tell apart what a macro generates. See [Containment](/docs/design/containment/).
 
 ### derive (Relationship Configuration)
 
@@ -711,9 +721,7 @@ has {              /* HAS for descendants */
 }
 ```
 
-Container type selectors participate in this inheritance:
-- `func`, `type`, `data`, `macro`, `field`/`method` explicitly set REFS, overriding any inherited refs+has
-- `mod`, `file`, `dir` set refs+has with inheritance
+Type selectors (`func`, `mod`, `file`, …) take no part in it: they constrain the symbol type and leave the relationship as they found it. A scope with no modifier anywhere above it accepts either kind ([the default is either](#default-relationship)).
 
 ## Generic Verbs
 
@@ -755,7 +763,7 @@ loc("main.c", 42, project="linux")   /* restricted to one project */
 loc("drm_drv.c", 120) { func }       /* what does this line's code call? */
 ```
 
-Both positional arguments are quoted; the line must be ≥ 1.
+The path is a string; the line is a bare integer ≥ 1 — `loc("main.c", "42")` is rejected.
 
 ### filter (Generic Filter)
 
@@ -773,6 +781,8 @@ filter("exact_name", "/src/main.go") /* Exact-name anchor */
 - `"compound_name"`: Filter by compound name pattern (token matching)
 - `"exact_name"`: Filter by exact symbol name
 
+**Parameters:** `inherit` — boolean, default `false`; `filter("type", "func", inherit=true) { … }` carries the constraint into nested scopes.
+
 ### ignore (Symbol Filtering)
 
 Excludes symbols matching a pattern from current and nested statements.
@@ -782,10 +792,14 @@ ignore("test") "main" {}        /* Ignore test functions */
 ignore("builtin") ignore("fmt") "process" {}  /* Multiple ignores */
 ```
 
-`ignore` is an alias: `not "test"` means the same as `ignore("test")`, and
-`ignore("kl*", package="k8s.io/klog")` is `not (g"kl*" and
-package("k8s.io/klog"))` — see [Boolean Operators](#boolean-operators).
-Like all exclusions, ignores accumulate and inherit into nested scopes.
+`ignore` and `not` coincide on simple names but are not aliases: `not "x"`
+negates the leaf name only, while `ignore("x")` excludes any symbol whose
+path carries the label `x` — `"foo.bar" ignore("foo")` is empty,
+`"foo.bar" not "foo"` keeps it. A plain string stays literal inside
+`ignore`, so a wildcard needs a glob: `ignore(g"kl*", package="k8s.io/klog")`
+is `not (g"kl*" and package("k8s.io/klog"))` — see
+[Boolean Operators](#boolean-operators). Like all exclusions, ignores
+accumulate and inherit into nested scopes.
 
 ### preamble (Global Configuration)
 
@@ -924,7 +938,7 @@ search(query, case="smart", whole_word=false, limit=500)
 - `query` — required positional; the string to search for. **≥ 3 characters.**
 - `case` — a string, since it is tri-state: `"smart"` (default), `"sensitive"`, or `"insensitive"`.
 - `whole_word` — boolean: `false` (default, substring match) or `true` (word-boundary match).
-- `limit` — integer ≥ 1, default `500`. Matches above the cap are dropped and the query result carries a truncation warning so you know to narrow.
+- `limit` — integer ≥ 1, default `500`, applied **per project**: each visible project contributes at most `limit` matches, and the result carries a truncation warning when any project hit it, so you know to narrow.
 
 > ⚠️ **No regex support.** The query is matched as a *literal string* in every mode. `search("foo.*bar")` looks for the exact seven-character sequence `foo.*bar`, not a regex. `search("[a-z]+")` looks for the seven-character sequence `[a-z]+`. This is the most common surprise for users coming from `grep` / `ripgrep`; document your queries accordingly.
 
@@ -1062,7 +1076,7 @@ label("handlers") func("Handle") {}
 "main" { use("handlers") }
 ```
 
-> **Note:** Since `#` is now used for the use-shortcut, comments use `/* ... */` syntax instead.
+> **Note:** Comments are `/* ... */` or `//` to the end of the line. `#` is the use-shortcut, not a comment.
 
 ## Query Examples
 
@@ -1209,8 +1223,10 @@ overflows its budget, the response's `truncated` flag is set and the kept
 symbols are chosen deterministically (by file path, offset, and id).
 
 The verbs documented as *budget-bounded* elsewhere on this page —
-`select`, bare enumerations, `search` — are bounded by exactly this
-budget.
+`select` and bare enumerations — read no more than a multiple of this
+budget and are then capped to it. `search` is bounded by its own
+per-project `limit=` instead; its matches meet the per-command symbol cap
+only when the response is assembled.
 
 #### Raising the limits: the `limits()` verb {#limits-verb}
 
@@ -1220,8 +1236,9 @@ that). At least one of `symbols` or `listing` is required; `0` means
 unlimited.
 
 - `symbols` — distinct symbols (nodes) the command's selection may ship.
-- `listing` — rows in any single per-node listing: instances per node,
-  distinct out-edges per node, and call-sites per edge. See
+- `listing` — rows in any single per-node listing: instances per node
+  and distinct out-edges per node. An edge's call sites are never capped;
+  the UI pages them from the edge endpoint. See
   [per-node listings](#paged-listings).
 
 ```askl
@@ -1229,7 +1246,7 @@ mod("amdgpu") limits(symbols=300) { func }
 /* the module and its <=300 functions, instead of the default 100 */
 
 func("handler") limits(listing=200)
-/* show up to 200 instances / call-sites on each handler node */
+/* show up to 200 instances and 200 out-edges on each handler node */
 ```
 
 Because it rides in the query text, a shared `#q=` link carries its own
