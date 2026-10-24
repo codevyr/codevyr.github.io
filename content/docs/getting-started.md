@@ -162,7 +162,7 @@ Once you're comfortable with basic queries:
 
 **Q: My query returns too many results**
 A: Add more specific filters or use `ignore` to reduce noise. Each
-statement is capped at 100 symbols by default (`truncated` in the
+command is capped at 100 symbols by default (`truncated` in the
 response); a statement that overflows the engine's discovery cap also
 carries an "incomplete" warning telling you to narrow it
 

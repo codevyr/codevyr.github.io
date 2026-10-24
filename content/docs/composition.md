@@ -6,37 +6,41 @@ weight: 250
 
 Askl's composition model allows you to query **containment relationships** between symbols. This is distinct from reference relationships (function calls) and enables powerful architectural queries.
 
-## Symbol Hierarchy
+## The containment tree
 
-Symbols are organized in a hierarchy based on their type:
+Containment is a tree the indexer writes down for every file: the module and
+directory the file belongs to, the file itself, its declarations, and whatever
+those declare in turn — a struct's fields, a closure inside a function, the
+declarations a macro generated. The common shape:
 
 ```
-directory (level 5)
-    └── module (level 4)
-        └── file (level 3)
-            ├── function (level 2)
-            ├── type (level 2)
-            ├── data (level 2)
-            ├── macro (level 2)
-            └── field (level 1)
+directory
+    └── module
+        └── file
+            ├── function
+            │     └── nested declarations
+            ├── type
+            │     └── field
+            ├── data
+            └── macro
 ```
 
-A higher-level symbol **contains** a lower-level symbol if:
-1. They share the same source file (object)
-2. The higher-level symbol's byte range encompasses the lower-level symbol's range
-3. The type levels are compatible (higher > lower)
-
-Fields sit at the lowest level, so they can be contained by types (e.g., `type("file_operations") has { field }`), files, modules, and directories.
+The tree is not derived from symbol types or byte ranges — a function can
+declare a struct, a struct can hold a function-pointer field, and everything a
+macro generates shares one byte range — so the indexer records a depth-first
+interval per declaration and the engine reads containment from that. The shape
+above is only the usual case; [Containment](/docs/design/containment/) has the
+model. `type("file_operations") has { field }` works because the struct's
+fields sit inside it in that tree.
 
 ## Two Relationship Types
 
 ### References (`refs`)
 
-The default relationship type. Shows what symbols **call** or **reference** each other.
+Shows what symbols **call** or **reference** each other.
 
 ```askl
-"foo" { "bar" }        /* foo calls bar */
-"foo" refs { "bar" }   /* Same, explicit syntax */
+"foo" refs { "bar" }   /* foo references bar */
 ```
 
 ### Containment (`has`)
@@ -45,25 +49,32 @@ Shows what symbols **contain** other symbols.
 
 ```askl
 mod("pkg") has { "handler" }   /* handler is IN pkg */
-file("/main.go") { func }      /* Functions IN main.go (implicit has from file) */
+file("/main.go") has { func }  /* Functions IN main.go */
 ```
 
-## Container Types: Implicit Relationships
+### The default: either
 
-Container type selectors (`dir`, `file`, `mod`) automatically set both containment and reference relationships for their children. This means you don't need explicit `has` when using them:
+A scope with no `has`, `refs` or `derive(...)` accepts either kind: `"foo" {
+"bar" }` keeps `bar` if `foo` references it or contains it, and
+`file("/main.go") { func }` finds the file's functions without `has`. Writing
+`has` or `refs` pins the kind, and the choice inherits into nested scopes.
+
+## Containers need no `has`
+
+Because a bare scope accepts either kind, container selectors (`dir`, `file`,
+`mod`) list their contents directly. Nothing is set implicitly, and type
+selectors never change the relationship:
 
 ```askl
-/* These are equivalent: */
+/* Functions the module contains — or references; `has` keeps only the contents */
 mod("pkg") { func }
 mod("pkg") has { func }
 
-/* dir also sets implicit refs+has: */
-dir("/src") { file }           /* Files in /src (no has needed) */
-dir("/") {}                    /* Shows directories and files */
+dir("/src") { file }           /* Files in /src */
+dir("/") {}                    /* Directories and files (default child types) */
 
-/* func overrides back to refs-only: */
+/* "bar": referenced by main, or declared inside it */
 dir("/") { func("main") { "bar" } }
-/* "bar" found via call graph (REFS), not containment */
 ```
 
 Each container type also sets default child types:
@@ -139,22 +150,24 @@ mod("handlers") { "ServeHTTP" {{}} }
 
 This query:
 1. Selects the "handlers" module
-2. Finds "ServeHTTP" functions **contained** in that module (implicit refs+has from `mod`)
+2. Finds "ServeHTTP" functions **contained** in that module (a bare scope accepts containment)
 3. Shows the call graph of those functions (two levels deep)
 
 ### Compare Container vs Explicit Relationship
 
 ```askl
-/* Containment: what functions are IN the module? */
+/* Either kind: functions the module contains or references */
 mod("pkg") { func }
 
+/* Containment only: what functions are IN the module? */
+mod("pkg") has { func }
+
 /* References only: what functions does the module CALL? */
-mod("pkg") derive(type="refs") { func }
+mod("pkg") refs { func }
 ```
 
-These return very different results:
-- The first uses the implicit refs+has from `mod` — functions found via containment
-- The second explicitly overrides to refs-only — functions found via call references
+The first is the union of the other two. The worked example below shows,
+on the kernel, how far they can drift apart.
 
 ### Worked Example: "Defined In" vs "Referenced By"
 
@@ -205,9 +218,9 @@ has {              /* HAS for descendants */
 }
 ```
 
-Container type selectors participate in this inheritance:
-- `func`, `type`, `data`, `macro`, `field`/`method` explicitly set **REFS**, overriding any inherited refs+has
-- `mod`, `file`, `dir` set **refs+has** with inheritance
+Type selectors (`func`, `mod`, `file`, …) take no part in it: they constrain
+the symbol type and leave the relationship as they found it. A scope with no
+modifier anywhere above it accepts either kind.
 
 ### Nested Containment
 
@@ -226,7 +239,7 @@ This finds:
 2. Modules contained in that directory
 3. Functions named "handler" contained in those modules
 
-No explicit `has` needed — each container type sets it implicitly.
+No explicit `has` needed — a bare scope accepts containment.
 
 ## Multi-Instance Symbols
 
@@ -270,7 +283,7 @@ Find external dependencies used by a module:
 mod("myapp") { func refs { mod("external") } }
 ```
 
-This finds functions in "myapp" that reference the "external" module. Note: `refs` explicitly overrides the inherited refs+has from `mod`, so only call references are shown.
+This finds functions in "myapp" that reference the "external" module. Note: `refs` pins the inner scope to references, so only calls are shown; a bare `{ }` would accept containment too.
 
 ### Refactoring Support
 
