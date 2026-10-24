@@ -1196,6 +1196,11 @@ too, because a bare `func` between two constraining siblings joins them into
 one query — the functions calling both — rather than leaving two independent
 answers.
 
+The warnings point at the cause. A name that matches nothing gets its own
+no-match warning and nothing else is reported. When every sibling matches but
+nothing relates to all of them, one note says so, for example
+`` `func` matched symbols, but none of them also relate to `"e"` ``.
+
 A `;` between **top-level** statements is not this operator. It ends the
 statement rather than adding a condition; both statements run and their results
 are unioned into one graph:

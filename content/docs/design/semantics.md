@@ -261,6 +261,16 @@ answers, which are unioned into the query's result
 ([From Result to Cache §2](/docs/design/derivation/#decomposition)),
 imposing nothing on each other.
 
+Emptiness is therefore all-or-nothing inside a statement. Every strong
+substatement is joined to the others through strong substatements (§9.1),
+and each keeps only rows with evidence in all of its constraining
+neighbours, so once one of them is empty, its neighbours empty, and so on
+until every one of them is. The engine reports this once, where it starts: a
+substatement that matched nothing gets its no-match warning, and a
+substatement that had matches but lost them all to a neighbour that had
+matches too gets one note naming both. A neighbour that was already empty
+passes on an emptiness that was already reported, so it raises nothing.
+
 Two properties now follow from the formula instead of having to correct
 it. Evidence is **matched per symbol** — only \(\mathrm{sym}(x)\) occurs
 on the left, so if any instance of a symbol is evidenced then every
