@@ -21,10 +21,12 @@ call free, and the invariant that survives content shared between projects.
 ## What the verb has to do {#the-contract}
 
 Given a query string `q` and the filters in scope, the verb owes its caller
-every byte-range occurrence of `q` in every indexed file, attributed to the
-object and project it belongs to and delivered in the graph model everything
-else uses: ephemeral symbols, one instance per byte range, one ephemeral layer
-for the batch. Three constraints shape how it gets there:
+every byte-range occurrence of `q` in every indexed file — or, when it sits
+inside a scope, in the bytes that scope's instances cover
+([Scope fusion](#scope-fusion)) — attributed to the object and project it
+belongs to and delivered in the graph model everything else uses: ephemeral
+symbols, one instance per byte range, one ephemeral layer for the batch. Three
+constraints shape how it gets there:
 
 - **No regex.** Users mostly want identifiers or literal strings. Regex support
   would need an additional index-friendly matching layer and invites a class of
@@ -204,6 +206,32 @@ emits:
 Two projects, two symbols, two instances — even though the content itself lives
 in a single `content_store` row.
 
+## Scope fusion {#scope-fusion}
+
+`X { search(q) }` is not "search everywhere, then keep what X contains". The
+verb takes the enclosing scope as its **fusion scope**: at populate time the
+scope's resolved instances become `(object, lo, hi)` byte-range triples and the
+scan is confined to them —
+
+```sql
+  AND o.id IN (…)                                        -- the scope's objects
+  AND EXISTS (SELECT 1 FROM (VALUES (oid, lo, hi), …) AS c(oid, lo, hi)
+              WHERE c.oid = o.id
+                AND p.start_byte >= c.lo AND p.start_byte < c.hi)
+```
+
+— so `macro(X) { search(Y) }` is answered from X's text and nothing else, and an
+instance's *extent* is load-bearing for search even though containment no
+longer reads it ([Containment §5](/docs/design/containment/#ephemeral)). A scope
+that resolves to no instances fuses to `AND FALSE`; a scope with more than 1024
+ranges, or with an unbounded one, degrades to the unscoped scan and lets
+composition narrow the result afterwards. The fused scope is part of the cache
+key ([below](#cache-key-composition)).
+
+Where the matches then *sit* — as width-1 leaves under the innermost persistent
+instance containing them — is the containment page's
+[placement rule](/docs/design/containment/#ephemeral); nothing here chooses it.
+
 ## Filter composition and the correctness invariant {#the-correctness-invariant}
 
 That same sharing is a hazard the moment a filter is in scope. When
@@ -237,8 +265,11 @@ implementing `objects_expr()` — a hypothetical `filetype("...")` or `path("...
 ## Truncation semantics {#truncation-semantics}
 
 A search over a common term can match more rows than anyone wants back, so the
-verb takes a `limit=N` parameter (default `500`). Enforcement is a SQL
-`LIMIT N+1` fence: if the query returns `N+1` rows, we drop the last and set
+verb takes a `limit=N` parameter (default `500`), applied **per visible
+project**: the populate runs once per root layer with its own fence, so the
+union is bounded by `N` times the projects in view, and the warning names
+the cut as happening "in at least one project". The fence is a SQL
+`LIMIT N+1`: if the query returns `N+1` rows, we drop the last and set
 `truncated = true`. The extra row is what distinguishes "hit the limit exactly"
 from "we truncated".
 
@@ -248,11 +279,11 @@ row (a small boolean alongside `populated`), and the caller that reads it back
 asks the originating selector to reconstruct the warning:
 
 ```
-SearchSelector::make_truncation_warning(&self) -> Option<pest::error::Error<Rule>>
+SearchSelector::make_truncation_warning(&self) -> Option<Diagnostic>
 ```
 
 Every `Selector` returns `None` from that default method; `SearchSelector`
-overrides it to produce a `CustomError` carrying the verb's own span. So a cache
+overrides it to build a truncation `Diagnostic` carrying the verb's own span. So a cache
 hit surfaces the warning at the exact source location of the offending
 `search(...)` call, though only the boolean fact was ever stored with the rows.
 

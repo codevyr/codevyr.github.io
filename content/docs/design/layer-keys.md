@@ -71,14 +71,18 @@ the one primitive this page builds from. A predicate tree is not a byte
 string, so the filter hash \(\mathcal{H}_F\) is defined over the tree
 instead, one node at a time:
 
-- each **leaf** hashes its own semantics — which predicate it is,
-  followed by its arguments in canonical encoding:
-  \(\mathcal{H}_F(\mathrm{leaf}) = \mathcal{H}\bigl(\mathrm{dom}(\mathrm{leaf}) \Vert \mathrm{args}(\mathrm{leaf})\bigr)\);
-- each **inner node** hashes an operator tag — one of the three
-  combinators, conjunction, disjunction, negation — followed by its
-  children's hashes:
-  \(\mathcal{H}_F(\mathrm{op}(t_1,\dots,t_n)) = \mathcal{H}\bigl(\mathrm{dom}(\mathrm{op}) \Vert \mathcal{H}_F(t_1) \Vert \dots \Vert \mathcal{H}_F(t_n)\bigr)\),
-  each child hash being a fixed 32 bytes.
+- each **leaf** writes its own semantics — which predicate it is,
+  followed by its arguments in canonical, length-prefixed encoding:
+  \(\mathrm{enc}(\mathrm{leaf}) = \mathrm{dom}(\mathrm{leaf}) \Vert \mathrm{args}(\mathrm{leaf})\);
+- each **inner node** writes an operator tag — one of the three
+  combinators, conjunction, disjunction, negation — then, for the two
+  n-ary ones, its child count, then each child's encoding in turn:
+  \(\mathrm{enc}(\mathrm{op}(t_1,\dots,t_n)) = \mathrm{dom}(\mathrm{op}) \Vert n \Vert \mathrm{enc}(t_1) \Vert \dots \Vert \mathrm{enc}(t_n)\).
+
+The whole tree streams into one hasher as a single canonical byte string,
+\(\mathcal{H}_F(t) = \mathcal{H}(\mathrm{enc}(t))\); no child digest is
+finalised on the way. Injectivity comes from the discriminators, the counts
+and the length prefixes, not from fixed-width digests.
 
 Two filters hash equally exactly when they are the same tree
 ([search()](/docs/design/search/#cache-key-composition) gives the
@@ -111,7 +115,9 @@ $$H(c,i) \;=\; \mathcal{H}\bigl(\, \mathrm{dom}(i) \,\Vert\, \mathrm{inputs}(i) 
   argument bytes cannot collide;
 - \(\mathrm{inputs}(i)\) — the verb's own arguments, canonically encoded and
   length-prefixed (for `search`: query bytes, case flag, whole-word flag,
-  limit), together with its **fused scope** where it has one. A verb that
+  and the limit, clamped before hashing so every "effectively unlimited"
+  spelling shares one key), together with its **fused scope** where it has
+  one. A verb that
   restricts its populate to the enclosing container — `search` narrowing
   its scan to the parent substatement's byte ranges — reads that
   container, so by the governing rule its key must name it: the

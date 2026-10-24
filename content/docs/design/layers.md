@@ -67,15 +67,26 @@ symbol_instances  { id, ..., layer }
 symbol_refs       { id, ..., layer }
 ```
 
-`content_store` — the raw file bytes — is the one table with **no** layer
-column: it is content-addressed by `content_hash` and shared across projects and
-layers (see [search()](/docs/design/search)). Everything else that a
-query can select, filter, or walk carries a layer.
+`content_store` — the raw file bytes — is the one table of graph data with
+**no** layer column: it is content-addressed by `content_hash` and shared
+across projects and layers (see [search()](/docs/design/search)). The small
+lookup tables (`projects`, `symbol_types`, `instance_types`) have none either;
+a project reaches its layers through `root_layer_id`. Everything that a query
+can select, filter, or walk carries a layer.
 
 Because every row carries its layer, "which rows does this query see?" reduces to
 "which layers are visible?", and every visibility predicate is a single
 `layer = ANY($visible)` clause. Queries never reason about the *shape* of the
 layer graph — only about a flat set of visible ids.
+
+Ids carry the kind in their sign. Root layers and the rows on them have
+positive ids; ephemeral layers and their rows negative, and a
+`CHECK ((id > 0) = (layer > 0))` on every data table pins the pairing. So a
+predicate can tell a persistent row from a query-time one without a join,
+and several paths lean on that: the owner lookup for ephemeral rows
+([§6.3](#placement)) requires `layer > 0`, the purge selects `layer < 0`, and
+the SQL cache's persistent branch guards on the sign
+([Caching §3](/docs/design/caching/#sql-result-cache)).
 
 ## 3. Kinds and lifetimes {#kinds-and-lifetimes}
 
@@ -110,9 +121,10 @@ makes that naming precise) — plus, in general, any further persistent
 > (in commit order) followed by an ephemeral suffix (the query's
 > materialisations) — committed state never depends on query-scoped state.
 
-**The canary.** One ephemeral layer is a self-contained sentinel — its own
-project, object, symbol, and instance — used to prove that a query which
-should see *nothing* really sees nothing.
+**The canary.** One protected sentinel layer (`kind = 'canary'`, never
+purged) is self-contained — its own project, object, symbol, and instance —
+and is used to prove that a query which should see *nothing* really sees
+nothing.
 
 > **Deployment status.** The above is the model; the running system
 > implements a proper subset of it. A project's persistent closure is
@@ -214,9 +226,10 @@ Three verbs create ephemeral layers. Two are **content verbs** and one is a
 
 `search("literal")` and `loc(path, line)` read the persistent corpus
 (`content_store ⋈ objects`) and materialise their results as ephemeral graph
-rows: one ephemeral symbol of type `SYMBOL_TYPE_CONTENT` per matching project,
-and one instance per match (a byte range for `search`, a resolved line for
-`loc`). The result is a first-class askl selection that downstream verbs compose
+rows, one instance per match. `search` emits one ephemeral symbol of type
+`SYMBOL_TYPE_CONTENT` per matching project, its instances the byte ranges;
+`loc` emits one symbol per matched file, zipped one-to-one with its resolved
+lines. The result is a first-class askl selection that downstream verbs compose
 with like any other:
 
 ```askl
@@ -251,8 +264,36 @@ committing, so a typo'd id fails loudly instead of committing a hollow layer.
 
 `layer { … }` is the low-level primitive the content verbs are built on
 conceptually, and the seam through which synthetic or externally-supplied graph
-rows can be injected into a query. It is an advanced operation; most queries
-never write one directly.
+rows can be injected into a query. It is not part of the language surface: the
+engine's tests use it to build fixtures, and the syntax reference does not
+list it.
+
+### 6.3. Placement: where an ephemeral row sits {#placement}
+
+A query-time row lands in an existing object and needs a position in that
+object's depth-first order, or it falls outside every containment interval and
+no scope can reach it. [Containment §5](/docs/design/containment/#ephemeral)
+derives the rules; this is what they mean for layers. The row's **owner** is
+the innermost persistent (`layer > 0`), unfolded instance whose extent
+contains it — narrowest extent, then deepest in the tree, `dfs_enter` as the
+final tie-break — and the row becomes a width-1 leaf in the gap above that
+owner's `dfs_enter`, one of at most 1022 under one owner, taking the owner's
+depth and fold depth; a reference sits at the owner's `dfs_enter + 1`.
+
+Three properties of the cache follow:
+
+- **Ephemeral layers never nest.** An ephemeral row cannot own another, so
+  `search("a") { search("b") }` places both searches' rows as siblings under
+  persistent owners, and neither layer's numbering depends on the other.
+- **Numbering is a function of committed data alone.** Because the owner must
+  be persistent, a cached layer's rows sit at the same positions whichever
+  query populated it first — the premise §9 rests on.
+- **The identity index is the position.** `(object_id, dfs_enter, layer)` is
+  unique, so a 1023rd row under one owner collides and is dropped by the
+  insert's `ON CONFLICT DO NOTHING` — reachable only from a `layer { }` block
+  or a `search(limit=…)` raised past the default read cap. A zero-width span
+  is rejected before insertion, since an empty range would be contained by
+  every instance in the object.
 
 ## 7. Isolation: no query sees another's rows {#isolation}
 
@@ -289,12 +330,16 @@ kind is *protected*, excluded from every purge; the canary of §3 is
 protected too, being the sentinel a purge would otherwise quietly
 invalidate.
 
-**Deleting a layer deletes its rows.** The delete cascades both to child
-layers (`parent_id`) and to every data row tagged with the layer (each
-data table's `layer` FK cascades), so a purge never leaves orphaned
-objects, symbols, instances, or refs behind. This is the same property as
-§2's: a row belongs to exactly one layer, and it has no existence apart
-from it.
+**Deleting a layer deletes its rows — and the layers that lean on it.** A
+delete first computes the **doomed closure** over four edges: child layers
+(`parent_id`), shards cached against the layer (`root_shard_id`), and the
+layers whose instances or references point at a symbol on it. It then
+deletes the closure, each data table's `layer` FK cascading the rows. The
+FK cascade alone would leave another layer hollow but still `populated`,
+which is the one state the cache must never observe. So a purge never
+leaves orphaned objects, symbols, instances, or refs behind — the same
+property as §2's: a row belongs to exactly one layer, and it has no
+existence apart from it.
 
 ## 9. Composition is union; masking is future {#composition-is-union}
 
