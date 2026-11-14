@@ -308,8 +308,8 @@ obvious; the last for one verb end to end, in SQL and in milliseconds.
   result budget, and the endpoints that recover what a response
   withheld.
 - **[Containment](/docs/design/containment)** — why source ranges cannot
-  say what contains what, and the depth-first interval, nesting level
-  and fold depth that do.
+  say what contains what, the depth-first interval and nesting level
+  that do, and why folding is a flag on the symbol instead.
 
 **Storing and reusing results**
 

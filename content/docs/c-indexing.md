@@ -147,23 +147,105 @@ The first positional argument is the project directory. It must contain `compile
 ## What the indexer records
 
 Beyond symbols and references, the indexer writes down the **containment
-tree** itself: every instance carries a depth-first interval, its nesting
-level, and whether it exists only because a macro expanded. Ranges alone
-cannot express this in C — everything `PMU_FORMAT_ATTR(...)` generates shares
-one extent, and a `##`-pasted name has no source location at all — so the walk
-that libclang already performs is what states it. See
-[Containment](/docs/design/containment/) for the model and
+tree** itself: every instance carries a depth-first interval and its nesting
+level. Ranges alone cannot express this in C — everything
+`PMU_FORMAT_ATTR(...)` generates shares one extent, and a `##`-pasted name has
+no source location at all — so the walk that libclang already performs is what
+states it. See [Containment](/docs/design/containment/) for the model and
 [Traversal modes](/docs/syntax/#traversal-modes) for what it buys a query.
 
 **Using a macro is a reference, not an instance.** A macro is declared once,
-at its `#define`; every use is one site naming it, recorded as a reference
-owned by the enclosing function, at that function's nesting level and fold
-depth. The indexer emits no *expansion* instances (the `EXPANSION` instance
-type stays in the wire format so older indices still parse); dropping them
-removed 37.8% of criu's instances and changed no reference. What a macro
-*generates* — declarations that exist only because it expanded — is recorded
-as ordinary instances marked `folded`, with `fold_depth` counting the folded
-ancestors above; that boundary is where the default traversal mode stops.
+at its `#define`; every use is one site naming it, recorded as a reference in
+the enclosing function. The indexer emits no *expansion* instances (the
+`EXPANSION` instance type stays in the wire format so older indices still
+parse); dropping them removed 37.8% of criu's instances and changed no
+reference. What a macro *generates* — declarations that exist only because it
+expanded — is recorded as ordinary instances, placed where the invocation was
+written.
+
+### Where things sit {#placement}
+
+**An instance or a reference sits in the innermost instance whose extent
+contains its text.** Nothing else decides it, and in particular not whether a
+macro was involved:
+
+```c
+UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_tag_send_nbx, (ep, buffer), ucp_ep_h ep, const void *buffer)
+{
+    return ucp_tag_send_req(ep, buffer);     /* sits in ucp_tag_send_nbx */
+}
+```
+
+The function's *name* passes through a macro, but its body is text the author
+typed, and the extent runs to the closing brace. A declaration is *generated*
+only when its whole extent is one macro invocation, as with `DEFINE_SHOW(event)`
+producing `event_show` — and such a declaration contains what is typed in the
+invocation's arguments, like any other instance contains its text.
+
+When one invocation generates several declarations they share an extent, and
+text cannot say which of them a reference is in. The parse can: the reference
+sits in the one it was parsed inside. A reference has one position, though, so
+when two generated functions refer to the same symbol through the same
+argument token, one of them has the edge.
+
+**A reference sits where its caller completed its name.** Usually that is the
+token that spells it. Three cases need saying:
+
+- *A name used as a value is a reference too* — `register_cb(handler)`,
+  `return handler;`, `.open = my_open`, and `module_init(my_init)` where the
+  macro stores its argument.
+- *A pasted name sits on the part its caller typed.* With
+  `#define MCA_PML_CALL(a) mca_pml.pml_ ## a`, the call
+  `MCA_PML_CALL(send(buf))` refers to the field `pml_send`, and no token spells
+  that. The caller chose `send`, so the reference sits on `send` and the edge
+  is `PMPI_Send -> pml_send`, direct; `MCA_PML_CALL` has no edge to any
+  `pml_*` field. A name pasted from two halves the macro wrote itself was
+  chosen by nobody and stays the macro's.
+- *A name completed by a macro passed to a list sits on that macro.* In
+  `int (*table[])(int) = { EACH(ENTRY) };` with
+  `#define EACH(_m) _m(alpha) _m(beta)` and `#define ENTRY(_n) handle_ ## _n,`
+  the list types `alpha`, but that names nothing until `ENTRY` is applied — the
+  same list with another macro would declare, or stringify. So the reference
+  sits on `ENTRY`, and the edge is `table -> handle_alpha`.
+
+A name written whole inside a `#define` body is that body's reference, once,
+however many places use the macro: each user reaches it through the macro, in
+two hops.
+
+### Folding {#folding}
+
+Every symbol carries one flag, **folded**: *not listed by default*. It is what
+keeps `mod("amdgpu") { func }` to the functions people work with, and it has
+nothing to do with where a symbol sits.
+
+**A symbol is folded unless normal code wrote it down**, where normal code is
+any text outside a `#define` body. There are three ways to write a symbol down:
+
+| | example | unfolds |
+|---|---|---|
+| declare it with text of its own | `int plain(int a) { … }`, and the `ucp_tag_send_nbx` above | the declared symbol |
+| type its whole name where a macro declares it | `DEFINE_MUTEX(lock)` | `lock` |
+| type its name, or the part of a pasted name a caller chooses, in a reference | `kh_put(tbl, h, k)` | `kh_put_tbl` |
+
+Everything else is folded: `__compiletime_assert_N`, an initializer's
+constructor, `event_show` when nothing calls it by name, the fields of a
+generated struct that no code reads. The rule is the same at every depth — a
+field of a generated struct is unfolded by a `h->n_buckets` in normal code and
+folded otherwise, whatever its siblings are.
+
+What counts is where the name was **typed**, which is not always where the
+reference **sits**:
+
+- In `EACH(ENTRY)` above, the reference to `handle_alpha` sits in normal code,
+  but `alpha` was typed in the list's `#define`. The edge exists and the
+  function stays folded.
+- `KHASH_INIT(tbl, …)` generates a family of functions that call each other,
+  all on the one `tbl`. A caller's part of a pasted name *inside a generated
+  declaration* is the generator's plumbing, not a use, and unfolds nothing.
+
+The flag is decided once per symbol, after every translation unit has been
+merged, because one file's reference unfolds what another file's macro
+generated. Macros, files, directories and modules are never folded.
 
 **A header is the union of its parses.** A header compiled by several
 translation units may show each a different set of declarations. The index
@@ -178,14 +260,14 @@ UI highlight an identifier or show a multi-line C signature correctly, and they
 are stored rather than derived, because K&R declarations, attributes between
 the signature and the body, and trailing return types all break the
 subtraction. References carry their own position in the same depth-first
-order, their nesting level and fold depth, and optionally a *full span* for
-the whole referencing construct — `printk(foo)`, where the name span covers
-only `printk`.
+order, their nesting level, and optionally a *full span* for the whole
+referencing construct — `printk(foo)`, where the name span covers only
+`printk`.
 
 **If the upload is rejected.** askld validates each object's tree before it
 stores anything: non-empty intervals at least one stride wide, unique
-`dfs_enter`, nesting without straddling, consistent `nesting_level` and
-`fold_depth`, every reference inside an instance. A malformed object fails the
+`dfs_enter`, nesting without straddling, a consistent `nesting_level`, every
+reference inside an instance. A malformed object fails the
 upload with HTTP 400 naming it. An index produced before the containment tree
 existed fails the first check, since every interval is `[0,0)` — re-run the
 indexer. There is no backfill, by design: the old data cannot express the
