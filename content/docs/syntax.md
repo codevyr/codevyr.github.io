@@ -311,8 +311,8 @@ own and is rejected with a hint instead of silently returning an empty result.
 | `derive(type="...")` | Set relationship type with options |
 | `preamble` | Apply subsequent verbs to the global scope |
 | `label("name")` / `@name` | Label this statement for reuse |
-| `unnest` | Reach every descendant, at any depth and through any fold |
-| `nested` | Reach exactly one structural level |
+| `unnest` | List every descendant, folded symbols included |
+| `nested` | List exactly one structural level |
 | `!` (forced) | Force display of relationships |
 
 > **Weakness is inferred, not written.** There is no weak marker: bare
@@ -593,30 +593,61 @@ derive(type="refs", inherit=false) /* REFS for this scope only, children reset t
 
 A scope asks a containment question, and there are three answers it can want.
 All three are the same walk over the index's containment tree; they differ only
-in where they stop. See [Containment](/docs/design/containment/) for the model.
+in what they list. See [Containment](/docs/design/containment/) for the model.
 
-| mode | reaches |
+| mode | lists |
 |---|---|
 | `nested` | exactly one structural level |
-| *(default)* | any depth, but not through code a macro generated |
-| `unnest` | any depth, through everything |
+| *(default)* | every descendant, at any depth, except folded symbols |
+| `unnest` | every descendant |
 
 **The default is not "direct".** Containment is a real chain — module contains
 directories, directories contain files, files contain declarations — so a
 module's *direct* children are files, and `mod("amdgpu") { func }` would return
-nothing. The default instead passes straight through those structural levels
-and stops at a **fold boundary**: a declaration a macro generated. So the query returns the
-module's functions wherever they sit, but not the compiler-internal helpers
-that a macro expanded into.
+nothing. The default instead reaches every level and leaves out one kind of
+thing: **folded symbols**.
+
+**A symbol is folded when nobody wrote it down in normal code**, meaning in
+text outside every `#define` body. Normal code writes a symbol down by
+
+- declaring it with text of its own — an ordinary function, struct or variable;
+- typing its whole name where a macro declares it — `lock` in
+  `DEFINE_MUTEX(lock)`;
+- typing its name in a reference, or the part of a pasted name a caller
+  chooses — `send` in `MCA_PML_CALL(send(buf))`, which names the field
+  `pml_send`.
+
+What is left is what the preprocessor made for itself: `__compiletime_assert_123`,
+the constructor behind an initializer macro, the fields of a generated struct
+that nobody reads, a function reached only through an X-macro list.
 
 ```askl
-mod("amdgpu") { func }              /* ~900 real functions, no macro internals */
-mod("amdgpu") { macro { func } }    /* what the macros expand to, on purpose */
+mod("amdgpu") { func }                         /* the functions people wrote or use */
+mod("amdgpu") { unnest func }                  /* those, and everything macros generated */
+mod("amdgpu") { "__compiletime_assert_123" }   /* a named symbol is always found */
 ```
 
-The same rule is what keeps `foo` in `printk(foo)` the caller's: every byte at
-a call site was typed by the caller, so the argument comes back from the
-enclosing function and a macro never claims it.
+Folding is a property of the *symbol*, decided over the whole project: a
+`kh_put(tbl, h, k)` in one file unfolds `kh_put_tbl`, which a
+`KHASH_INIT(tbl, …)` in another file generated. An index whose producer never
+folds anything — Go has no preprocessor — lists everything.
+
+**Folding hides; it does not disconnect.** It decides what is *listed* and
+plays no part in what contains what. In
+
+```c
+void f(void) { BUILD_BUG_ON(sizeof(struct x) > 4); }
+```
+
+the macro generates a declaration whose extent is the whole invocation, so the
+`struct x` typed in its argument sits inside that declaration — which sits
+inside `f`. `"f" { }` lists `x`, and the generated declaration between them is
+simply absent from the list. Upward is the same: `{ "x" }` lists `f`, its file
+and its directory, and passes over the generated declaration.
+
+**Naming a symbol ignores folding.** A statement that names what it wants —
+exactly or by glob — is not an enumeration, so `"f" { "__compiletime_assert_123" }`
+returns the declaration although `"f" { }` does not list it.
 
 **What a macro calls is reached by edges, not by folding.** Macro edges are
 *layerwise*: each layer records only what its own body names, so
@@ -637,31 +668,34 @@ macro("DEV_PRINT") { "printk" }        /* what the macro's body calls */
 func("handler") { macro }              /* the macros it invokes */
 ```
 
-So folding is about what a macro *generates* — the symbols it brings into
-existence, whose names may not even appear in the source — and not about what
-it calls. Reaching through a macro to its callees needs no modifier at all.
+A name the macro *pastes together* belongs to whoever completed it. With
+`#define CALL(a) ops.do_ ## a`, the caller of `CALL(send(x))` chose `send`, so
+the edge to `ops.do_send` is the caller's, direct, and `CALL` has none. See
+[C indexing](/docs/c-indexing/) for the rule.
 
-**`nested`** narrows to exactly one structural level, ignoring folding. It is
-how to ask for a container's own contents and nothing deeper:
+**`nested`** narrows to exactly one structural level, and ignores folding. It
+is how to ask for a container's own contents and nothing deeper:
 
 ```askl
 file("main.c") { nested }              /* the file's own declarations, nothing deeper */
 ```
 
-It is *not* a window onto what a macro generated. A generated declaration is
-placed where it was written, not under the macro, so `macro("X") { nested }`
-returns what `X`'s body names — its edges. What a macro *generates* is reached
-by folding, which is what the default mode above does.
+Because it is literal about levels, it sees a generated declaration as the
+level it is: in the `BUILD_BUG_ON` example `"f" { nested }` lists the generated
+declaration and not `x`, which sits one level further in. It is *not* a window
+onto what a macro generated, either. A generated declaration is placed where it
+was written, not under the macro, so `macro("X") { nested }` returns what `X`'s
+body names — its edges.
 
-**`unnest`** removes every restriction:
+**`unnest`** lists everything, folded or not:
 
 ```askl
-func("main") { unnest }             /* everything inside main, at any depth */
+func("main") { unnest }             /* everything inside main */
 ```
 
 Upward derivation uses the same knob. A bare `{ "x" }` surfaces every container
-of `x` that is not behind a fold; `nested` asks for just the one container `x`
-literally sits in:
+of `x` whose symbol is not folded; `nested` asks for just the one container `x`
+literally sits in, and `unnest` for all of them:
 
 ```askl
 { "data_d" }            /* func_a, its file, its directory */

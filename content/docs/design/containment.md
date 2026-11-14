@@ -1,6 +1,6 @@
 ---
 title: "Containment"
-description: "Why source ranges cannot express what contains what, and the DFS interval, nesting level and fold depth that replace them"
+description: "Why source ranges cannot express what contains what, the DFS interval and nesting level that replace them, and why folding is kept out of it"
 weight: 100
 ---
 
@@ -17,8 +17,10 @@ and `Y` is inside `X` exactly when
 X.dfs_enter < Y.dfs_enter < X.dfs_exit
 ```
 
-with both in the same object. Two further columns, `nesting_level` and
-`fold_depth`, say *how far* inside and *through what kind of boundary*.
+with both in the same object. One further column, `nesting_level`, says *how
+far* inside. What a query *lists* by default is a different question with a
+different answer — one flag on the symbol, [folding](#folding) — and
+containment never consults it.
 
 ## 1. Why ranges are not enough {#why-not-ranges}
 
@@ -132,13 +134,12 @@ the compiler defines (`__GNUC__`, `__has_include`) or one that came from a `-D`
 flag has no declaration in the tree to point at. On criu that is 51 of 136 such
 symbols. Naming them is useful — they are referenced — so they stay.
 
-## 3. The three axes {#axes}
+## 3. The two axes {#axes}
 
 | axis | columns | question it answers |
 |---|---|---|
 | position | `dfs_enter`, `dfs_exit` | is Y inside X at all? |
 | depth | `nesting_level` | how many levels down? |
-| provenance | `folded`, `fold_depth` | across how many *generated* boundaries? |
 
 ### Position
 
@@ -161,7 +162,7 @@ The macro itself is not in this tree: it is the *reference* that put these four
 here, and it lives at its own `#define`.
 
 Real numbers, from glibc's `__SOCKADDR_ALLTYPES` as indexed in criu — thirteen
-union members generated at one extent, inside an ordinary unfolded definition:
+union members generated at one extent, inside an ordinary definition:
 
 ```
  enter   exit  depth  node                                 range
@@ -205,29 +206,60 @@ modules outermost, the Go indexer does too, and nothing would break if one
 changed. No query depends on it: traversal is the interval plus at most one
 equality, and never names a container type.
 
-### Provenance
+### Folding is not an axis {#folding}
 
-`folded` marks an instance that exists only because of a macro expansion.
-`fold_depth` counts the folded ancestors above it. These are what separate
-*where a symbol sits* from *which levels are interesting*, and they are why
-`mod("amdgpu") { func }` returns the module's ~900 real functions rather than
-either nothing (strict depth) or every compiler-internal helper (plain
-transitive descent):
+There used to be a third axis: `folded` and `fold_depth` on every instance and
+reference, counting the generated declarations above it, with the default
+traversal comparing the counts. It answered "which levels are interesting" by
+*position*, and position is the wrong thing to ask.
 
-| instance | folded | fold_depth | in `mod { func }`? |
-|---|---|---|---|
-| a file | no | 0 | — |
-| `event_show`, generated, whose ancestors are not | yes | 0 | **yes** — a real function of the module |
-| `__compiletime_assert_1121`, inside generated `event_show` | yes | 1 | **no** |
-| the argument `foo` in `printk(foo)`, owned by the caller | — | 0 | **yes** |
+- **It hid by where a symbol sat.** A generated symbol was left out when it sat
+  inside another generated symbol and listed when it sat directly in a
+  function. On the kernel that listed 455,417 `__compiletime_assert_N`
+  instances and hid 59,880.
+- **It leaked into containment.** For the counts to come out right, a reference
+  typed in a generating macro's arguments could not sit in the declaration the
+  macro generated, so placement skipped folded instances. A function whose
+  *name* merely passed through a macro — `UCS_PROFILE_FUNC(ret, name, …) { body }`
+  — counted as folded, took no references, and every call in its body landed
+  on the file: ucx's `ucp_tag_send_nbx` had 71 references written inside it and
+  none placed in it.
 
-Folding answers *what did this macro bring into existence*, and nothing else.
-What a macro **calls** is not a fold question: references are **layerwise**, one
-edge per `#define`, so `handler -> DEV_PRINT -> printk` is a chain of ordinary
-edges and `handler -> printk` is a traversal of it. The producer records the
-body reference where the macro author wrote it and an invocation reference at
-each call site; neither needs a fold level, and a reference's `fold_depth` is
-non-zero now only when it sits inside macro-*generated* code.
+So the two are separate, and neither knows about the other.
+
+**Containment is decided by extent.** An instance or a reference sits in the
+innermost instance whose extent contains its text: narrowest, then deepest in
+the tree. Among instances that share one extent — everything a single macro
+invocation generates — it is the one the reference was parsed inside, which is
+the same information that orders those instances ([stated](#stated)). No
+instance is skipped for what it is.
+
+**Folding is one flag on the symbol**, `symbols.folded`: *not listed by
+default*. The indexer sets it for a symbol nobody wrote down in normal code —
+the rule is in [C indexing](/docs/c-indexing/#folding). It is per symbol
+because the question spans the project: a reference in one file unfolds a
+symbol that a macro in another file generated.
+
+```c
+void f(void) {
+    BUILD_BUG_ON(sizeof(struct x) > 4);   /* generates __compiletime_assert_7 */
+}
+```
+
+| | sits in | listed by default? |
+|---|---|---|
+| `f` | the file | yes |
+| `__compiletime_assert_7`, whose extent is the invocation | `f` | **no** — its symbol is folded |
+| the reference to `struct x`, typed in the argument | `__compiletime_assert_7`, and therefore `f` | **yes** |
+
+`f { }` lists `x` because the reference lies in `f`'s interval, and leaves the
+assert out because nobody wrote its name. Nothing has to "skip" anything.
+
+What a macro **calls** is not a fold question either: references are
+**layerwise**, one edge per `#define`, so `handler -> DEV_PRINT -> printk` is a
+chain of ordinary edges and `handler -> printk` is a traversal of it. The
+producer records the body reference where the macro author wrote it and an
+invocation reference at each call site.
 
 ## 4. The three traversal modes {#modes}
 
@@ -237,33 +269,42 @@ Every mode is the interval range plus at most one equality. See
 | mode | extra predicate | reads |
 |---|---|---|
 | `nested` | `Y.nesting_level = X.nesting_level + 1` | `nesting_level` |
-| default | `Y.fold_depth = X.fold_depth + (X.folded ? 1 : 0)` | `fold_depth` |
+| default | `NOT folded`, on Y's symbol | the symbol row the query already joins |
 | `unnest` | — | nothing |
 
-The default is *unfolded*, not *direct*. Direct would make
-`mod("amdgpu") { func }` empty, since a module's direct children are files.
-Unfolded passes through the structural levels and stops at a macro boundary —
-and the `+ (X.folded ? 1 : 0)` term is exactly what lets
-`mod { macro { func } }` step one level past a fold on purpose.
+The default is not *direct*. Direct would make `mod("amdgpu") { func }` empty,
+since a module's direct children are files. The default reaches every level
+and leaves out folded symbols — and a folded *container* is passed over, not
+stopped at: what sits inside it is listed on its own merits. The same predicate
+runs upward, on the container's symbol, so `{ "x" }` lists the function and
+its file and not a generated declaration between them.
 
-`unnest` lost its main reason to exist, and that is the point. It was the only
-way to reach what a macro called, because the edge `handler -> DEV_PRINT` did
-not exist and containment was the only route across. It does: `unnest` is now
-for ordinary containment that runs deeper than a fold rule allows, not for
-macros.
+A statement that **names** a symbol never goes through this filter. It selects
+by name and is then constrained by its neighbour's interval, so
+`f { "__compiletime_assert_7" }` returns a declaration that `f { }` does not
+list. The filter exists only where a statement is *derived* from its
+neighbour.
 
-Two consequences worth stating, both accepted:
+`unnest` is how to see what the default leaves out: everything the
+preprocessor generated for itself. It is not needed to reach what a macro
+*calls* — that is an edge.
+
+Three consequences worth stating, all accepted:
 
 - `X { Y }` no longer means strictly "direct". In Go, `func { func }` returns
   closures nested at any depth, and a reference inside a local declaration
   counts as the enclosing function's.
 - `nested` is the only reader of `nesting_level`, and the only way to ask for
   exactly one structural level: a file's own declarations, or the single
-  container a symbol literally sits in. It is **not** a window onto what a
+  container a symbol literally sits in. It ignores folding and is literal about
+  levels, so in the example above `f { nested }` lists the generated assert and
+  not `x`, which sits one level further in. It is **not** a window onto what a
   macro generated — a generated declaration is placed where it was written, so
-  on the deployed ucx index `macro("ucs_offsetof") { nested }` returns only
-  `ucs_offsetof`, and `macro("__KHASH_IMPL") { nested }` returns the six macros
-  its body calls.
+  `macro("ucs_offsetof") { nested }` returns only `ucs_offsetof`, and
+  `macro("__KHASH_IMPL") { nested }` returns the macros its body calls.
+- A reference has one position. When two declarations generated on one extent
+  both refer to the same symbol through the same argument token — two
+  `KHASH_INIT` functions calling a third — one of them has the edge.
 
 ## 5. Ephemeral rows {#ephemeral}
 
@@ -283,31 +324,32 @@ accident. The gap holds 1022 of them per owner — above the default read cap
 defaults cannot exhaust it. A raised `search(limit=…)` can: the 1023rd match
 under one owner repeats a position, and the identity index drops it silently.
 
-**Its owner is the innermost *unfolded, persistent* instance whose extent
-contains it.** Each word is doing work:
+**It sits in the innermost *persistent* instance whose extent contains it.**
+Each word is doing work:
 
 - *persistent* — placement is a function of committed data alone, so a
   **cached** layer's numbering cannot depend on which query populated it first;
-- *unfolded* — **a macro expansion owns no text.** Every byte at the call site
-  of `foo(a)` was typed by the caller, so the owner of a match anywhere inside
-  it is the enclosing function — and there is no expansion instance to pick in
-  the first place. What the word still excludes is macro-*generated* code,
-  which owns the text of the declarations it produced but never a call site;
 - *innermost* — narrowest extent, then **deepest in the tree**, with
   `dfs_enter` only as a final tiebreak. The same rule both indexers use to place
-  a persistent reference, so one byte range gets one owner whether the row is
-  stored or materialised at query time.
+  a persistent reference, so one byte range gets one container whether the row
+  is stored or materialised at query time.
 
   Deepest matters because of the container chain: a match outside every
   declaration — an `import` block, a comment between functions — has the module,
   the directory and the file as candidates, all co-extensive. Taking the
   outermost numbers it *below its own file's interval*, out of reach of
   `file(…) { … }` in every traversal mode, since every mode starts from the
-  interval and only adds an equality. Keeping compiler helpers from owning user
-  text is the *unfolded* rule above, not this one.
+  interval and only adds a predicate.
 
-The row then takes its depth and fold depth from that owner, so it behaves
-exactly as a symbol at that position would.
+Folding plays no part. A match typed in a generating macro's arguments sits in
+the declaration the macro generated, and is still its function's, because the
+function's interval contains that declaration's: `func("f") { search("x") }`
+finds it by the interval alone. There used to be an exclusion here, *unfolded*,
+on the argument that "a macro expansion owns no text"; it bought the same
+answer by making where a match sits depend on what is shown.
+
+The row then takes its depth from that container, so it behaves exactly as a
+symbol at that position would.
 
 Three accepted limitations:
 
@@ -322,9 +364,9 @@ Three accepted limitations:
   sequencing — materialise the outer first and search only inside its matches —
   not numbering. `"foo" { search("b") }`, the common query, works, because the
   container is persistent.
-- `macro("foo") { search(...) }` finds nothing, since none of that text is the
-  macro's. The arguments are searchable from the enclosing function, which is
-  where they were written.
+- `macro("foo") { search(...) }` searches the macro's `#define`, its only
+  instance. The text at its call sites is searchable from the functions that
+  wrote it.
 
 ## 6. Validation {#validation}
 
@@ -339,12 +381,12 @@ object, before anything is stored:
   just as silently as an empty one;
 - `dfs_enter` is unique — the DFS order is total;
 - intervals nest, never straddle;
-- `nesting_level` equals the actual depth, and a root instance has
-  `fold_depth` 0;
-- `fold_depth` is the parent's plus its `folded` flag;
+- `nesting_level` equals the actual depth;
 - every ref's `dfs_enter` falls strictly inside some instance interval, and
-  the ref's `nesting_level` and `fold_depth` are its owner's plus one and
-  plus the owner's `folded` flag.
+  the ref's `nesting_level` is one more than that of the instance it sits in.
+
+Folding is not validated: it is a flag on the symbol with no arithmetic to get
+wrong, and an index that sets none lists everything.
 
 A note on the containment check, because the cheap version of it is wrong: a
 ref may legitimately sit after a nested instance has closed while an ancestor

@@ -274,11 +274,11 @@ A query-time row lands in an existing object and needs a position in that
 object's depth-first order, or it falls outside every containment interval and
 no scope can reach it. [Containment §5](/docs/design/containment/#ephemeral)
 derives the rules; this is what they mean for layers. The row's **owner** is
-the innermost persistent (`layer > 0`), unfolded instance whose extent
-contains it — narrowest extent, then deepest in the tree, `dfs_enter` as the
-final tie-break — and the row becomes a width-1 leaf in the gap above that
-owner's `dfs_enter`, one of at most 1022 under one owner, taking the owner's
-depth and fold depth; a reference sits at the owner's `dfs_enter + 1`.
+the innermost persistent (`layer > 0`) instance whose extent contains it —
+narrowest extent, then deepest in the tree, `dfs_enter` as the final
+tie-break — and the row becomes a width-1 leaf in the gap above that owner's
+`dfs_enter`, one of at most 1022 under one owner, one level below the owner;
+a reference sits at the owner's `dfs_enter + 1`.
 
 Three properties of the cache follow:
 
