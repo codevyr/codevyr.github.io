@@ -1,6 +1,6 @@
 ---
 title: "Containment"
-description: "Why source ranges cannot express what contains what, the DFS interval and nesting level that replace them, and why folding is kept out of it"
+description: "Why source ranges cannot express what contains what, the DFS interval and nesting level that replace them, where a declaration and a reference sit, and why folding is kept out of it"
 weight: 100
 ---
 
@@ -10,7 +10,7 @@ from data the indexer wrote down. This page is about what that data is and why
 the obvious choice does not work.
 
 The short version: **containment is a position in a depth-first traversal, not
-a source range.** A symbol owns a half-open interval `[dfs_enter, dfs_exit)`,
+a source range.** An instance has a half-open interval `[dfs_enter, dfs_exit)`,
 and `Y` is inside `X` exactly when
 
 ```
@@ -31,7 +31,7 @@ what askl used, and it is wrong in C for two independent reasons.
 **A macro expansion cannot contain what it generates.** The indexer used to
 record an expansion clamped to the macro *name* — measured on the deployed
 index, **5,439 of 5,439** sampled expansions had width exactly the name's
-length, so an expansion could never own anything. Widening it to the whole
+length, so an expansion could never contain anything. Widening it to the whole
 invocation does not help either: then it contains the *arguments*, and the
 caller wrote those.
 
@@ -90,9 +90,34 @@ belongs to which variable. The parser knows; nothing else does.
 So a producer may *state* an instance's parent instead of leaving it to the
 ranges. The consequence is worth stating plainly, because it looks like a bug
 the first time you see it: **a child's source range may lie entirely outside its
-parent's.** `First` occupies five bytes and owns a closure thirty bytes away.
-That is the encoding working as intended — the interval decides containment and
-never consults a range.
+parent's.** `First` occupies five bytes and contains a closure thirty bytes
+away. That is the encoding working as intended — the interval decides
+containment and never consults a range.
+
+C has the mirror image: **a declaration's bytes may lie inside one that does
+not contain it.**
+
+```c
+#define PROFILE_FUNC(type, name, p) int blah; type blah_##name(int p)
+
+PROFILE_FUNC(int, send, x) { return helper(x); }
+```
+
+`blah` is made of the macro's own tokens. clang knows they are in the
+`#define`, but the range libclang reports for a declaration that ends in a
+macro body ends at the *end of the invocation* — a convention from 2011, so
+that an editor can highlight `y = NO` in one piece — and the indexer anchors
+the start at the invocation too. So the only extent `blah` has is
+`PROFILE_FUNC(int, send, x)`. The function `blah_send` starts at that same
+invocation and runs on through a body the author typed, so the invocation, and
+`blah` with it, lies in the function's text. Read as text, a global variable is
+inside a function.
+
+The extent of a generated declaration says *came out of this invocation*, not
+*its text is here*. What does tell the two apart is the walk: the compiler read
+`blah` at file level, before `blah_send` was opened. So that is where it sits —
+beside the function, with its bytes inside the function's. The rule is in
+[where things sit](#placement).
 
 ## 2b. One file, many translation units {#union}
 
@@ -118,8 +143,15 @@ only instance does not. That is a symbol a query can name and never locate.
 Measured on criu before the fix, reversing the order of 211 translation units
 changed **which 21 symbols were locatable at all**.
 
-Two consequences worth stating, both accepted:
+Three consequences worth stating, all accepted:
 
+- **Two compilations can read one declaration in different places.** A file
+  compiled twice under two names declares `work` and `work_variant` on the
+  same bytes, and an assert a macro generates in the body is one instance that
+  each compilation read inside a different function. A tree has one parent per
+  node and neither is wrong, so the walk's answer is dropped for that instance
+  and its text decides. Keeping the first to arrive would make the tree depend
+  on thread timing.
 - **Both arms of an `#ifdef` co-exist**, and nothing records which build each
   belongs to. The index describes the *text*, not one configuration. This is
   not a new ambiguity — the symbol table always worked this way — it makes the
@@ -227,12 +259,9 @@ traversal comparing the counts. It answered "which levels are interesting" by
 
 So the two are separate, and neither knows about the other.
 
-**Containment is decided by extent.** An instance or a reference sits in the
-innermost instance whose extent contains its text: narrowest, then deepest in
-the tree. Among instances that share one extent — everything a single macro
-invocation generates — it is the one the reference was parsed inside, which is
-the same information that orders those instances ([stated](#stated)). No
-instance is skipped for what it is.
+**Containment is decided by text and by the walk**, as
+[where things sit](#placement) spells out. Nothing is placed, or passed over,
+because of folding.
 
 **Folding is one flag on the symbol**, `symbols.folded`: *not listed by
 default*. The indexer sets it for a symbol nobody wrote down in normal code —
@@ -250,16 +279,82 @@ void f(void) {
 |---|---|---|
 | `f` | the file | yes |
 | `__compiletime_assert_7`, whose extent is the invocation | `f` | **no** — its symbol is folded |
-| the reference to `struct x`, typed in the argument | `__compiletime_assert_7`, and therefore `f` | **yes** |
+| the reference to `struct x`, typed in the argument | `f` | **yes** |
 
 `f { }` lists `x` because the reference lies in `f`'s interval, and leaves the
-assert out because nobody wrote its name. Nothing has to "skip" anything.
+assert out because nobody wrote its name. Neither answer consults the other.
 
 What a macro **calls** is not a fold question either: references are
 **layerwise**, one edge per `#define`, so `handler -> DEV_PRINT -> printk` is a
 chain of ordinary edges and `handler -> printk` is a traversal of it. The
 producer records the body reference where the macro author wrote it and an
 invocation reference at each call site.
+
+## 3b. Where things sit {#placement}
+
+Two sentences place every declaration and every reference:
+
+> **A declaration somebody typed contains what lies in its text. A declaration
+> a macro generated has no text of its own, so it contains only what the
+> compiler read inside it.**
+
+*Generated* means the declaration's whole extent is one macro invocation.
+`DEFINE_MUTEX(lock)` generates `lock`; `PROFILE_FUNC(int, send, x) { … }` does
+not generate `blah_send`, because its extent runs on through a typed body.
+
+```c
+int f(struct x *p) {
+    BUILD_BUG_ON(sizeof(struct x) > MAX_DEPTH);
+    return helper(READ_ONCE(p->state));
+}
+```
+
+Both macros generate a `__compiletime_assert_N` whose extent is its invocation.
+Text alone would hand those declarations everything the invocations mention.
+They read none of it: `struct x`, `MAX_DEPTH`, `p->state` and both macro names
+were read in `f`, and sit in `f`.
+
+| text | read inside | sits in |
+|---|---|---|
+| `struct x` in the `BUILD_BUG_ON` argument | `f` | `f` |
+| `KHASH_INIT` in `KHASH_INIT(x, int, my_hash)` at file level | nothing | the file, beside the functions it generated |
+| `my_hash`, used once in each of three generated functions | each of the three | each of the three |
+| `helper` in a typed body | `f` | `f` |
+
+The lookup asks the extents around a piece of text innermost first. If it was
+read inside a declaration with that extent, it sits there. Otherwise it sits in
+the declarations with that extent that were typed. Otherwise the next wider
+extent is asked. One function does this for an instance's parent and for a
+reference.
+
+**A generated declaration sits where it was read**, for the same reason: the
+invocation's extent is not its text, so text cannot say what it is inside. It
+is not given to a declaration the walk enters unless the compiler read it
+there. That is what puts `blah` beside `blah_send` in [§2](#stated). What the
+walk does not enter — the file, a `#define` — still holds a generated
+declaration by text.
+
+**Fields and enum constants are read inside, like functions.** With
+`#define PAIR(type_t, a, b) type_t a; type_t b;`, the invocation
+`PAIR(struct cfg, first, second)` declares two fields on one extent, each a
+`struct cfg`. The one `cfg` token is read once inside each field and sits in
+each, so `holder.first -> cfg` and `holder.second -> cfg` both exist.
+
+**A reference is what it names, the token that names it, and where it sits.**
+One token can be read in several declarations — `my_hash` above, or a body
+compiled twice under two names — and is then one reference in each, three rows
+that differ only in their position. The edge exists from every function that
+uses the helper. A listing of *occurrences* collapses them again: one line of
+source is shown once, however many declarations read it.
+
+Two typed declarations can share one text, when a file is compiled twice under
+two names. Both contain what lies in it, so a macro use in such a body is a
+reference in each. An instance still takes one parent, the first.
+
+What this gives up: a macro *use* is recorded before the walk, so it is read
+inside nothing. A macro named in the arguments of a generating invocation —
+`NFT_REG32_NUM` in `DECLARE_BITMAP(reg_inited, NFT_REG32_NUM)` — sits in the
+struct around the generated field, not in the field.
 
 ## 4. The three traversal modes {#modes}
 
@@ -297,14 +392,15 @@ Three consequences worth stating, all accepted:
 - `nested` is the only reader of `nesting_level`, and the only way to ask for
   exactly one structural level: a file's own declarations, or the single
   container a symbol literally sits in. It ignores folding and is literal about
-  levels, so in the example above `f { nested }` lists the generated assert and
-  not `x`, which sits one level further in. It is **not** a window onto what a
+  levels, so in the example above `f { nested }` lists the generated assert as
+  well as `x`: both sit directly in `f`. It is **not** a window onto what a
   macro generated — a generated declaration is placed where it was written, so
   `macro("ucs_offsetof") { nested }` returns only `ucs_offsetof`, and
   `macro("__KHASH_IMPL") { nested }` returns the macros its body calls.
-- A reference has one position. When two declarations generated on one extent
-  both refer to the same symbol through the same argument token — two
-  `KHASH_INIT` functions calling a third — one of them has the edge.
+- One line of source can be several references. A token read in three
+  generated functions is an edge from each ([where things sit](#placement)),
+  and the engine's unique key for a reference includes its position for that
+  reason.
 
 ## 5. Ephemeral rows {#ephemeral}
 
@@ -316,43 +412,64 @@ Two rules place them.
 
 **An ephemeral instance is a leaf.** It gets a width-1 interval, one integer
 wide, because nothing is ever placed inside one — a reference sits below every
-slot, and an ephemeral row may not own another. That makes laminarity
+slot, and an ephemeral row may not contain another. That makes laminarity
 *automatic*: width-1 integer intervals cannot partially overlap, so two rows
-under one owner, from whatever batches, are always siblings and never nest by
-accident. The gap holds 1022 of them per owner — above the default read cap
+in one container, from whatever batches, are always siblings and never nest by
+accident. The gap holds 1022 of them per container — above the default read cap
 (1000) and `search()`'s default `limit` (500 per project), so a query at the
 defaults cannot exhaust it. A raised `search(limit=…)` can: the 1023rd match
-under one owner repeats a position, and the identity index drops it silently.
+in one container repeats a position, and the identity index drops it silently.
 
-**It sits in the innermost *persistent* instance whose extent contains it.**
-Each word is doing work:
+**It sits in the innermost *persistent* instance whose text holds it.** Each
+word is doing work:
 
 - *persistent* — placement is a function of committed data alone, so a
-  **cached** layer's numbering cannot depend on which query populated it first;
+  **cached** layer's numbering cannot depend on which query populated it first.
+  The rule itself is part of every layer's cache key, so changing it retires
+  the layers the old rule placed;
 - *innermost* — narrowest extent, then **deepest in the tree**, with
-  `dfs_enter` only as a final tiebreak. The same rule both indexers use to place
-  a persistent reference, so one byte range gets one container whether the row
-  is stored or materialised at query time.
+  `dfs_enter` only as a final tiebreak.
 
   Deepest matters because of the container chain: a match outside every
   declaration — an `import` block, a comment between functions — has the module,
   the directory and the file as candidates, all co-extensive. Taking the
   outermost numbers it *below its own file's interval*, out of reach of
   `file(…) { … }` in every traversal mode, since every mode starts from the
-  interval and only adds a predicate.
+  interval and only adds a predicate;
+- *text* — an extent is not always text ([§2](#stated)). **An instance whose
+  bytes lie in a wider extent that does not contain it has no text there, and a
+  match passes it over.** In the `PROFILE_FUNC` example a match on `x` has
+  `blah` as its narrowest extent, and `blah` sits beside `blah_send`, not in
+  it. Placed in `blah`, the match would be outside the function it was typed
+  in, and `func("blah_send") { search("x") }` — which reads the function's
+  bytes — would find the text and then report that nothing related. Bytes
+  disagreeing with the tree is the one thing the engine can see about what a
+  declaration is made of, and it is enough for this case.
 
-Folding plays no part. A match typed in a generating macro's arguments sits in
-the declaration the macro generated, and is still its function's, because the
-function's interval contains that declaration's: `func("f") { search("x") }`
-finds it by the interval alone. There used to be an exclusion here, *unfolded*,
-on the argument that "a macro expansion owns no text"; it bought the same
-answer by making where a match sits depend on what is shown.
+  "Does not contain it" is asked of the extent, not of one instance. Several
+  declarations can share an extent and a tree gives what lies in them one
+  parent; being inside any of them is agreement. So nothing moves in an index
+  whose tree follows its bytes.
+
+This is the indexer's law as far as the engine can see it, and it cannot see
+all of it. An instance row does not say it was generated, so a match in
+`KHASH_INIT(x, int, my_hash)` at file level lands in one of the functions the
+invocation generated — the earliest — where the indexer puts a *reference* in
+the file beside them. That match is still inside everything that contains the
+invocation, so no scoped search loses it; it is attributed to one member of
+the family rather than to none.
+
+Folding plays no part. There used to be an exclusion here, of *folded*
+instances; it made where a match sits depend on what is shown.
 
 The row then takes its depth from that container, so it behaves exactly as a
 symbol at that position would.
 
-Three accepted limitations:
+Four accepted limitations:
 
+- A match has one place. The text in `PROFILE_FUNC(int, send, x)` lies in the
+  bytes of both `blah` and `blah_send`; `func("blah_send") { search("x") }`
+  finds it and `data("blah") { search("x") }` does not.
 - `X { search(…) }` searches X's *extent*, not X's subtree. A scoped search
   fuses the scope's byte ranges into its own corpus, so a declaration whose
   range lies outside its container's (§2) is reached by `X { unnest }` but
@@ -377,8 +494,8 @@ object, before anything is stored:
 - every interval is non-empty (`dfs_exit > dfs_enter`);
 - every interval is at least one **stride** (1024) wide — the gap query-time
   rows are numbered into ([ephemeral rows](#ephemeral)), which numbering by
-  stride provides for free. A merely *narrow* owner loses its own search matches
-  just as silently as an empty one;
+  stride provides for free. A merely *narrow* container loses its own search
+  matches just as silently as an empty one;
 - `dfs_enter` is unique — the DFS order is total;
 - intervals nest, never straddle;
 - `nesting_level` equals the actual depth;

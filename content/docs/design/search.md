@@ -228,8 +228,8 @@ ranges, or with an unbounded one, degrades to the unscoped scan and lets
 composition narrow the result afterwards. The fused scope is part of the cache
 key ([below](#cache-key-composition)).
 
-Where the matches then *sit* — as width-1 leaves under the innermost persistent
-instance containing them — is the containment page's
+Where the matches then *sit* — as width-1 leaves in the innermost persistent
+instance whose text holds them — is the containment page's
 [placement rule](/docs/design/containment/#ephemeral); nothing here chooses it.
 
 ## Filter composition and the correctness invariant {#the-correctness-invariant}
