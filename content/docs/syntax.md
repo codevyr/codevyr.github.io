@@ -639,11 +639,14 @@ plays no part in what contains what. In
 void f(void) { BUILD_BUG_ON(sizeof(struct x) > 4); }
 ```
 
-the macro generates a declaration whose extent is the whole invocation, so the
-`struct x` typed in its argument sits inside that declaration — which sits
-inside `f`. `"f" { }` lists `x`, and the generated declaration between them is
-simply absent from the list. Upward is the same: `{ "x" }` lists `f`, its file
-and its directory, and passes over the generated declaration.
+the macro generates a declaration that sits inside `f`, and the `struct x`
+typed in its argument sits in `f` too: whoever wrote the invocation typed it,
+and the compiler read it there. `"f" { }` lists `x`, and the generated
+declaration is simply absent from the list. Upward is the same: `{ "x" }` lists
+`f`, its file and its directory. A folded declaration that *does* contain
+something — a generated `kh_put_x` that nobody calls by name, using the
+`my_hash` handed to `KHASH_INIT(x, int, my_hash)` — is passed over the same
+way, and the file still lists `my_hash`.
 
 **Naming a symbol ignores folding.** A statement that names what it wants —
 exactly or by glob — is not an enumeration, so `"f" { "__compiletime_assert_123" }`
@@ -680,12 +683,11 @@ is how to ask for a container's own contents and nothing deeper:
 file("main.c") { nested }              /* the file's own declarations, nothing deeper */
 ```
 
-Because it is literal about levels, it sees a generated declaration as the
-level it is: in the `BUILD_BUG_ON` example `"f" { nested }` lists the generated
-declaration and not `x`, which sits one level further in. It is *not* a window
-onto what a macro generated, either. A generated declaration is placed where it
-was written, not under the macro, so `macro("X") { nested }` returns what `X`'s
-body names — its edges.
+Because it is literal about levels and ignores folding, in the `BUILD_BUG_ON`
+example `"f" { nested }` lists the generated declaration as well as `x`: both
+sit directly in `f`. It is *not* a window onto what a macro generated, either.
+A generated declaration is placed where the compiler read it, not under the
+macro, so `macro("X") { nested }` returns what `X`'s body names — its edges.
 
 **`unnest`** lists everything, folded or not:
 

@@ -160,14 +160,20 @@ the enclosing function. The indexer emits no *expansion* instances (the
 `EXPANSION` instance type stays in the wire format so older indices still
 parse); dropping them removed 37.8% of criu's instances and changed no
 reference. What a macro *generates* — declarations that exist only because it
-expanded — is recorded as ordinary instances, placed where the invocation was
-written.
+expanded — is recorded as ordinary instances, placed where the compiler read
+them.
 
 ### Where things sit {#placement}
 
-**An instance or a reference sits in the innermost instance whose extent
-contains its text.** Nothing else decides it, and in particular not whether a
-macro was involved:
+Two sentences place every declaration and every reference:
+
+> **A declaration somebody typed contains what lies in its text. A declaration
+> a macro generated has no text of its own, so it contains only what the
+> compiler read inside it.**
+
+A declaration is *generated* when its whole extent is one macro invocation, as
+with `DEFINE_SHOW(event)` producing `event_show`. A function whose *name*
+merely passes through a macro is not:
 
 ```c
 UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_tag_send_nbx, (ep, buffer), ucp_ep_h ep, const void *buffer)
@@ -176,17 +182,74 @@ UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_tag_send_nbx, (ep, buffer), ucp_ep_h ep, 
 }
 ```
 
-The function's *name* passes through a macro, but its body is text the author
-typed, and the extent runs to the closing brace. A declaration is *generated*
-only when its whole extent is one macro invocation, as with `DEFINE_SHOW(event)`
-producing `event_show` — and such a declaration contains what is typed in the
-invocation's arguments, like any other instance contains its text.
+Its body is text the author typed and the extent runs to the closing brace, so
+it contains its text like any other function — the invocation included, which
+is why the edge reads `ucp_tag_send_nbx -> UCS_PROFILE_FUNC`.
+
+The extent libclang reports for a generated declaration is its invocation's,
+and that is not its text: the invocation's arguments were typed by whoever
+wrote the invocation.
+
+```c
+int f(struct x *p) {
+    BUILD_BUG_ON(sizeof(struct x) > MAX_DEPTH);   /* generates __compiletime_assert_0 */
+    return helper(READ_ONCE(p->state));           /* generates __compiletime_assert_1 */
+}
+```
+
+`struct x`, `MAX_DEPTH`, `p->state` and both macro names are in the asserts'
+extents, and the compiler read all of them in `f`. They sit in `f`.
 
 When one invocation generates several declarations they share an extent, and
-text cannot say which of them a reference is in. The parse can: the reference
-sits in the one it was parsed inside. A reference has one position, though, so
-when two generated functions refer to the same symbol through the same
-argument token, one of them has the edge.
+what was read inside one of them sits in that one:
+
+```c
+KHASH_INIT(x, int, my_hash)      /* generates kh_get_x, kh_resize_x, kh_put_x */
+```
+
+| token | sits in | edge |
+|---|---|---|
+| `my_hash`, used once in each function | each of the three | `kh_get_x -> my_hash`, `kh_resize_x -> my_hash`, `kh_put_x -> my_hash` |
+| `KHASH_INIT` | the file | `file -> KHASH_INIT` |
+
+**A reference is what it names, the token that names it, and where it sits.**
+`my_hash` is one token and three references, one row for each function that
+read it. The same holds when a file is compiled twice under two names: a call
+in the body is read inside `work` by one compilation and inside `work_variant`
+by the other, and is a reference in both.
+
+**A generated declaration sits where it was read**, because the invocation is
+not its text either:
+
+```c
+#define PROFILE_FUNC(type, name, p) int blah; type blah_##name(int p)
+
+PROFILE_FUNC(int, send, x) { return helper(x); }
+```
+
+`blah`'s extent is the invocation, which lies in the text of `blah_send`. It
+was read at file level, before the function was opened, and sits in the file
+beside it. A generated declaration is given to a function, struct or field
+only if the compiler read it there; the file still holds it by text.
+
+**Fields and enum constants are read inside, like functions.** With
+`#define PAIR(type_t, a, b) type_t a; type_t b;`, `PAIR(struct cfg, first,
+second)` gives `holder.first -> cfg` and `holder.second -> cfg`.
+
+Three things this costs, stated so they are not surprises:
+
+- A macro *use* is recorded before the walk and is read inside nothing. A
+  macro named in a generating invocation's arguments —
+  `DECLARE_BITMAP(reg_inited, NFT_REG32_NUM)` — sits in the struct around the
+  generated field, and at file level in the file.
+- Where two compilations read one generated declaration inside different
+  functions (an assert in a body compiled twice under two names), the walk has
+  two answers and gives none. Text decides, and the declaration goes to the
+  first of the two functions, whichever compilation ran first.
+- [`search()`](/docs/design/containment/#ephemeral) places a match by text in
+  the engine, which does not know which declarations were generated. A match in
+  `KHASH_INIT(x, int, my_hash)` lands in one of the three functions, where a
+  reference would sit in the file.
 
 **A reference sits where its caller completed its name.** Usually that is the
 token that spells it. Three cases need saying:
