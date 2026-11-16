@@ -287,8 +287,9 @@ assert out because nobody wrote its name. Neither answer consults the other.
 What a macro **calls** is not a fold question either: references are
 **layerwise**, one edge per `#define`, so `handler -> DEV_PRINT -> printk` is a
 chain of ordinary edges and `handler -> printk` is a traversal of it. The
-producer records the body reference where the macro author wrote it and an
-invocation reference at each call site.
+producer records the body reference where the macro author wrote it, an
+invocation reference at each call site, and on the macro's own name a
+reference to each declaration an invocation [named](#declares).
 
 ## 3b. Where things sit {#placement}
 
@@ -355,6 +356,59 @@ What this gives up: a macro *use* is recorded before the walk, so it is read
 inside nothing. A macro named in the arguments of a generating invocation —
 `NFT_REG32_NUM` in `DECLARE_BITMAP(reg_inited, NFT_REG32_NUM)` — sits in the
 struct around the generated field, not in the field.
+
+## 3c. What a macro declared {#declares}
+
+The two sentences above leave one edge pointing the wrong way. In
+
+```c
+static DEFINE_MUTEX(lock);
+PROFILE_FUNC(int, send, x) { return helper(x); }
+```
+
+`lock` and `blah_send` have text of their own, and the invocation lies in it,
+so placement by text gives `lock -> DEFINE_MUTEX` and `blah_send ->
+PROFILE_FUNC`: the variable *uses* the macro. Nothing leads from a macro to
+what it made.
+
+The difficulty is that this is not a tree. The invocation and the declaration
+overlap partially — `PROFILE_FUNC(int, send, x)` is inside `blah_send`'s
+extent, and `blah_send` came out of `PROFILE_FUNC`. One of the two has to
+give, and the invocation is the one that has no text to lose:
+
+> **An invocation that supplies a declaration's name declares it: the macro
+> refers to the declaration, and the invocation sits where the declaration
+> sits, not inside it.**
+
+So `file -> DEFINE_MUTEX -> lock` and `file -> PROFILE_FUNC -> blah_send ->
+helper`. No declaration contains the invocation that names it; that is the
+one exception to placing a typed declaration's contents by text.
+
+Three alternatives were weighed and dropped.
+
+| | what it is | why not |
+|---|---|---|
+| invocation as an *instance* of the macro, containing what it generated | precise per invocation | one symbol with thousands of instances, which is the fan-out that made `mod("amdgpu")` slow; and references would have to be forbidden from sitting in one |
+| derive the edge in the engine from the invocation's span and the declaration's extent | no new rows | paid per invocation at query time, even for an empty answer — 1.8 s to learn that `NULL` declares nothing on Linux — and five read paths to teach |
+| both edges for the partial overlap | keeps `blah_send -> PROFILE_FUNC` | a cycle through every definition a macro names |
+
+*Supplying the name* is tested on the name token, not on the extent. An
+earlier form asked whether the declaration lies wholly inside the invocation,
+and missed 1,012 of the kernel's 1,098 file-level `DEFINE_MUTEX` variables,
+which are written `static DEFINE_MUTEX(x)`.
+
+Two clauses keep the edge to what the invocation is *for*. It must name the
+declaration **directly** — the fields of a struct it named are reached through
+the struct. And the declaration must be **introduced** there, as a definition
+or the first declaration: `EXPORT_SYMBOL_GPL(foo)` redeclares `foo`, and
+without this clause that one macro would list 20,800 kernel symbols.
+
+The reference is the macro's and is written in a `#define`, so it unfolds
+nothing ([folding](#folding)).
+
+What it does not solve: a macro is one node, so `other -> HOOK -> hooks.open`
+reads as a path when two structs use `HOOK`. Only a per-invocation record
+could refuse that path, and that is the instance model again.
 
 ## 4. The three traversal modes {#modes}
 

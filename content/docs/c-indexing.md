@@ -156,7 +156,8 @@ states it. See [Containment](/docs/design/containment/) for the model and
 
 **Using a macro is a reference, not an instance.** A macro is declared once,
 at its `#define`; every use is one site naming it, recorded as a reference in
-the enclosing function. The indexer emits no *expansion* instances (the
+the enclosing function. A use that *names a declaration* also gives the macro
+a reference to that declaration; see [what a macro declared](#declares). The indexer emits no *expansion* instances (the
 `EXPANSION` instance type stays in the wire format so older indices still
 parse); dropping them removed 37.8% of criu's instances and changed no
 reference. What a macro *generates* — declarations that exist only because it
@@ -183,8 +184,9 @@ UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_tag_send_nbx, (ep, buffer), ucp_ep_h ep, 
 ```
 
 Its body is text the author typed and the extent runs to the closing brace, so
-it contains its text like any other function — the invocation included, which
-is why the edge reads `ucp_tag_send_nbx -> UCS_PROFILE_FUNC`.
+it contains its text like any other function. The one piece of its text it
+does not contain is the invocation that named it, which sits beside the
+function; see [what a macro declared](#declares).
 
 The extent libclang reports for a generated declaration is its invocation's,
 and that is not its text: the invocation's arguments were typed by whoever
@@ -210,7 +212,7 @@ KHASH_INIT(x, int, my_hash)      /* generates kh_get_x, kh_resize_x, kh_put_x */
 | token | sits in | edge |
 |---|---|---|
 | `my_hash`, used once in each function | each of the three | `kh_get_x -> my_hash`, `kh_resize_x -> my_hash`, `kh_put_x -> my_hash` |
-| `KHASH_INIT` | the file | `file -> KHASH_INIT` |
+| `KHASH_INIT` | the file | `file -> KHASH_INIT`, and `KHASH_INIT` refers to the three it [declared](#declares) |
 
 **A reference is what it names, the token that names it, and where it sits.**
 `my_hash` is one token and three references, one row for each function that
@@ -250,6 +252,68 @@ Three things this costs, stated so they are not surprises:
   the engine, which does not know which declarations were generated. A match in
   `KHASH_INIT(x, int, my_hash)` lands in one of the three functions, where a
   reference would sit in the file.
+
+### What a macro declared {#declares}
+
+> **An invocation that supplies a declaration's name declares it: the macro
+> refers to the declaration, and the invocation sits where the declaration
+> sits, not inside it.**
+
+```c
+DEFINE_MUTEX(lock);
+static DEFINE_MUTEX(slock);
+struct hooks { HOOK(struct ops_ret, open); };
+UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_tag_send_nbx, (ep, buffer), ucp_ep_h ep, const void *buffer)
+{
+    return ucp_tag_send_req(ep, buffer);
+}
+```
+
+| written | edges |
+|---|---|
+| `DEFINE_MUTEX(lock)`, `static DEFINE_MUTEX(slock)` | `file -> DEFINE_MUTEX -> lock`, `-> slock` |
+| `HOOK(struct ops_ret, open)` in `struct hooks` | `hooks -> HOOK -> hooks.open -> ops_ret` |
+| `UCS_PROFILE_FUNC(…, ucp_tag_send_nbx, …) { … }` | `file -> UCS_PROFILE_FUNC -> ucp_tag_send_nbx -> ucp_tag_send_req` |
+
+The variable does not use the macro; the macro made the variable. So there is
+no `lock -> DEFINE_MUTEX`, and `macro("DEFINE_MUTEX") { }` lists the mutexes.
+
+- **Where the reference is.** On the macro's name in its `#define`, one for
+  each declaration. An invocation stays a reference to the macro; nothing is
+  an instance of it.
+- **Supplying the name** is decided by the declaration's name token: it
+  expands inside the invocation. `static DEFINE_MUTEX(slock)` counts although
+  `static` is outside — 1,012 of the kernel's 1,098 file-level mutexes are
+  written that way.
+- **Directly.** The fields of a struct that the same invocation named are
+  reached through the struct, not from the macro.
+- **Introduced.** Only a definition or the first declaration counts.
+  `EXPORT_SYMBOL(foo)` declares `foo` again and does not lead to it.
+- **It unfolds nothing.** A name that only a generating invocation mentions
+  stays [folded](#folding), and `macro("X") { }` leaves it out like any other
+  listing; `macro("X") { unnest }` shows it.
+
+This is the one place a typed declaration does not contain something in its
+text: no declaration contains the invocation that names it.
+
+What it costs:
+
+- A macro is one node, so a path through it joins unrelated invocations.
+  When `struct other` also uses `HOOK`, `other -> HOOK -> hooks.open` reads as
+  a path. On ucx, 86 of 107 generating macros are invoked in more than one
+  place.
+- Only the outermost invocation at a site is recorded. In
+  `likely(BUILD_BUG_ON(…))` it is `likely` that refers to the assertion the
+  inner macro declared. Such targets are folded.
+- A function declared through a macro does not lead to that macro, so not to
+  what the macro's body refers to either. `{ "UCS_PROFILE_FUNC" }` lists the
+  files that invoke it.
+
+On Linux this adds 882,913 references (4.8%) from 23,686 macros; 98,888 of
+them, from 3,090 macros, lead to symbols listed by default. On ucx it adds
+3,589 (1.7%).
+
+### Where a reference sits {#reference-position}
 
 **A reference sits where its caller completed its name.** Usually that is the
 token that spells it. Three cases need saying:
@@ -305,6 +369,8 @@ reference **sits**:
 - `KHASH_INIT(tbl, …)` generates a family of functions that call each other,
   all on the one `tbl`. A caller's part of a pasted name *inside a generated
   declaration* is the generator's plumbing, not a use, and unfolds nothing.
+- A macro's reference to [what it declared](#declares) sits in the `#define`
+  and unfolds nothing either.
 
 The flag is decided once per symbol, after every translation unit has been
 merged, because one file's reference unfolds what another file's macro

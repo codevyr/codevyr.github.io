@@ -432,13 +432,14 @@ mod("config") { data }   /* Data symbols in module (filter mode) */
 
 ### macro
 
-Selects macro symbols (C/C++ preprocessor `#define` directives). The calls written in a macro's body are references recorded inside the macro's own containment interval, so `macro("LOG") { func }` lists them; a macro that calls a macro records only what its own body names, one `#define` per layer (see [Traversal modes](#traversal-modes)).
+Selects macro symbols (C/C++ preprocessor `#define` directives). The calls written in a macro's body are references recorded inside the macro's own containment interval, so `macro("LOG") { func }` lists them, together with the functions its invocations declared; a macro that calls a macro records only what its own body names, one `#define` per layer (see [Traversal modes](#traversal-modes)).
 
 ```askl
 macro("LOG")              /* Macros matching "LOG" */
 macro select              /* All macros (budget-bounded) */
 func("main") { macro }   /* Macros referenced by main */
 macro("LOG") { func }    /* Functions called inside LOG's body */
+macro("DEFINE_MUTEX") { data }   /* The variables its invocations declared */
 ```
 
 **Default child types:** macros and functions.
@@ -671,6 +672,29 @@ macro("DEV_PRINT") { "printk" }        /* what the macro's body calls */
 func("handler") { macro }              /* the macros it invokes */
 ```
 
+**What a macro declares is an edge from the macro.** An invocation that
+supplies a declaration's name declares it, so
+
+```c
+static DEFINE_MUTEX(lock);
+struct hooks { HOOK(struct ops_ret, open); };
+```
+
+gives `DEFINE_MUTEX -> lock` and `hooks -> HOOK -> hooks.open -> ops_ret`. The
+variable does not lead to the macro; the file that wrote the invocation does.
+
+```askl
+macro("DEFINE_MUTEX") { }             /* every mutex declared with it */
+{ "lock" }                            /* its users, and DEFINE_MUTEX */
+macro("UCS_PROFILE_FUNC") { func }    /* the functions declared through it */
+macro("KHASH_INIT") { unnest }        /* including the ones nobody calls by name */
+```
+
+A macro that only declares a symbol *again* does not lead to it:
+`EXPORT_SYMBOL(foo)` has no edge to `foo`. A macro is one node, so a path
+through it joins invocations that have nothing to do with each other. See
+[C indexing](/docs/c-indexing/#declares).
+
 A name the macro *pastes together* belongs to whoever completed it. With
 `#define CALL(a) ops.do_ ## a`, the caller of `CALL(send(x))` chose `send`, so
 the edge to `ops.do_send` is the caller's, direct, and `CALL` has none. See
@@ -685,9 +709,10 @@ file("main.c") { nested }              /* the file's own declarations, nothing d
 
 Because it is literal about levels and ignores folding, in the `BUILD_BUG_ON`
 example `"f" { nested }` lists the generated declaration as well as `x`: both
-sit directly in `f`. It is *not* a window onto what a macro generated, either.
-A generated declaration is placed where the compiler read it, not under the
-macro, so `macro("X") { nested }` returns what `X`'s body names — its edges.
+sit directly in `f`. It does not look *inside* a macro either. A generated
+declaration is placed where the compiler read it, not under the macro, so
+`macro("X") { nested }` returns `X`'s edges: what its body names and what its
+invocations declared, folded or not.
 
 **`unnest`** lists everything, folded or not:
 
@@ -1318,6 +1343,13 @@ This is stronger than budget truncation: the symbol set itself may be
 missing entries, and a capped statement's partial answer is never used
 to narrow its neighbours. The fix is what the warning says — a narrower
 query — not pagination.
+
+The warning is said only when a limit cut something out of the answer.
+What the listing leaves out for what it is does not count: on the kernel
+`macro("EXPORT_SYMBOL_GPL") { }` lists one symbol and says nothing,
+although the macro also refers to 20,817 [folded](#traversal-modes)
+ones. Ask for those with `unnest` and the same query is cut at the cap,
+and says so.
 
 ### Per-node listings are paged, not warned {#paged-listings}
 
