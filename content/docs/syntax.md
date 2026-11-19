@@ -646,6 +646,30 @@ something — a generated `kh_put_x` that nobody calls by name, using the
 `my_hash` handed to `KHASH_INIT(x, int, my_hash)` — is passed over the same
 way, and the file still lists `my_hash`.
 
+**A listing says what it left out.** Containment survives folding; a call
+chain does not. `SYSCALL_DEFINE3(read, …)` generates `__x64_sys_read`, which
+calls `__se_sys_read`, which calls `__do_sys_read` — and nobody ever types the
+middle name, so it is folded. `"__x64_sys_read" { }` therefore lists no callee,
+and `{ "__do_sys_read" }` no caller. So that this does not read as "calls
+nothing", a default listing that passed over folded symbols says so in its
+warnings:
+
+```
+`{ }` leaves out 1 folded (macro-generated) symbol: `__se_sys_read`. Add `unnest` to list it, or name it
+```
+
+```askl
+"__x64_sys_read" { unnest }          /* the hop is listed */
+"__x64_sys_read" { unnest { } }      /* and what it calls */
+unnest { "__do_sys_read" }           /* upward: on the statement that lists */
+```
+
+The warning counts symbols, names up to three, and reports only what the
+statement would otherwise have listed: `file("/a.c") has { func }` mentions the
+folded functions of the file and not its folded types. A listing that a limit
+cut says it is [incomplete](#incompleteness) instead, and is not asked what
+else it left out.
+
 **Naming a symbol ignores folding.** A statement that names what it wants —
 exactly or by glob — is not an enumeration, so `"f" { "__compiletime_assert_123" }`
 returns the declaration although `"f" { }` does not list it.
