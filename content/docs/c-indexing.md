@@ -288,7 +288,10 @@ no `lock -> DEFINE_MUTEX`, and `macro("DEFINE_MUTEX") { }` lists the mutexes.
 - **Directly.** The fields of a struct that the same invocation named are
   reached through the struct, not from the macro.
 - **Introduced.** Only a definition or the first declaration counts.
-  `EXPORT_SYMBOL(foo)` declares `foo` again and does not lead to it.
+  `EXPORT_SYMBOL(foo)` declares `foo` again and does not lead to it. A
+  file-scope variable with no `extern` is a definition even without an
+  initializer, so `DEFINE_PER_CPU(struct rq, runqueues)` leads to `runqueues`,
+  as does the `DECLARE_PER_CPU` in a header that announced it first.
 - **It unfolds nothing.** A name that only a generating invocation mentions
   stays [folded](#folding), and `macro("X") { }` leaves it out like any other
   listing; `macro("X") { unnest }` shows it.
