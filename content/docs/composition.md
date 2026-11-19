@@ -77,17 +77,10 @@ dir("/") {}                    /* Directories and files (default child types) */
 dir("/") { func("main") { "bar" } }
 ```
 
-Each container type also sets default child types:
-
-| Container | Default Child Types |
-|-----------|-------------------|
-| `dir` | directories, files |
-| `file` | functions, modules |
-| `mod` | modules, functions |
-| `type` | types |
-| `data` | data |
-| `macro` | macros, functions |
-| `field` / `method` | functions |
+A type word on the parent says nothing about the child: a scope with no
+type word accepts every type. `dir("/src") { }` is everything under the
+directory, and `dir("/src") { file }` is its files
+([a type word and the scopes around it](/docs/syntax/#type-word-scope)).
 
 ## Several Children in One Scope
 

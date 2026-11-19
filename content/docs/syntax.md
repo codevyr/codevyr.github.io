@@ -251,7 +251,11 @@ Verbs in Askl fall into three categories:
 | `select` | Make the statement **binding**: enumerate everything the statement's filters allow (budget-bounded), and keep the statement constraining in composition |
 
 Multiple selectors in a statement are **OR-ed** — the statement selects the union of
-their matches, constrained by the statement's filters. Inside a scope that is exactly
+their matches, constrained by the statement's filters. A named type selector
+carries its own type, so `func("open") data("fops")` is the function and the
+variable. A bare type word filters every selector beside it (`func "open"
+"close"`), which is why two type words side by side — `macro func`, `data
+func("open")` — are an error: write `macro or func`. Inside a scope that is exactly
 the contrast with `;`: `X { A B }` is one child whose selectors disjoin, `X { A ; B }`
 two children that conjoin
 ([Sibling Statements in a Scope](/docs/syntax/#sibling-statements-in-a-scope)).
@@ -285,11 +289,11 @@ own and is rejected with a hint instead of silently returning an empty result.
 | `mod` (no name) | Only include module symbols |
 | `file` (no name) | Only include file symbols |
 | `dir` (no name) | Only include directory symbols |
-| `any` (no name) | Include every symbol type (removes an inherited type filter) |
+| `any` (no name) | Include every symbol type (removes a type carried down with `inherit=true`) |
 
 > **Note:** Type selectors like `func` behave differently based on arguments:
-> - Without a name (`func`) → **Filter** (constrains to type, **inherits to all descendants**)
-> - With a name (`func("foo")`) → **Selector** (queries matching symbols, does NOT inherit)
+> - Without a name (`func`) → **Filter**: constrains the statement it is written in to that type, and no other statement
+> - With a name (`func("foo")`) → **Selector**: one branch of its statement, carrying its own type
 > - `any` is the member of this family that constrains no type — the same two
 >   forms apply to it (`any` filters, `any("foo")` selects)
 > - `func select` enumerates all functions (budget-bounded)
@@ -361,11 +365,12 @@ Inside an expression a verb contributes only its predicate — `file or dir
   (type, project, package, or one filter kind).  Filters of different
   dimensions conjoin by juxtaposition; for a cross-dimension disjunction,
   split into sibling statements.
-- A filter group inherits into `{ }` scopes **as a unit**, and a child
-  statement writing the same dimension replaces it wholesale:
-  `func or method { data "x" }` finds `x` as data, not as an always-empty
-  conjunction.  Exclusions (`not ...`) accumulate instead — they narrow,
-  like `ignore`, and inherit unconditionally.
+- A filter group inherits into `{ }` scopes **as a unit**, when each of
+  its positive members would on its own: `project("a") or project("b")`
+  does, `func or method` does not, because a type word stays in its
+  statement.  A child statement writing the same dimension replaces an
+  inherited group wholesale.  Exclusions (`not ...`) accumulate instead —
+  they narrow, like `ignore`, and inherit unconditionally.
 
 > **Footgun:** `func ("foo")` — with a space — is still an argument list,
 > not `func` AND a grouped name: a `(` after a verb name binds as
@@ -415,7 +420,6 @@ mod("net/http") { type }  /* Types in module (filter mode) */
 type("Request") { type }  /* Types referenced by Request */
 ```
 
-**Default child types:** types.
 
 ### data
 
@@ -428,7 +432,6 @@ data select              /* All data symbols (budget-bounded) */
 mod("config") { data }   /* Data symbols in module (filter mode) */
 ```
 
-**Default child types:** data.
 
 ### macro
 
@@ -442,7 +445,6 @@ macro("LOG") { func }    /* Functions called inside LOG's body */
 macro("DEFINE_MUTEX") { data }   /* The variables its invocations declared */
 ```
 
-**Default child types:** macros and functions.
 
 ### field / method
 
@@ -459,7 +461,6 @@ type("file_operations") has { field }         /* All fields of a struct */
 { field("file_operations.read") }             /* Who calls through this field? */
 ```
 
-**Default child types:** functions.
 
 ### mod
 
@@ -472,7 +473,6 @@ mod select               /* All modules (budget-bounded) */
 mod("pkg") { func }      /* Functions in module (no has needed) */
 ```
 
-**Default child types:** modules and functions.
 
 ### file
 
@@ -485,7 +485,6 @@ file select              /* All files (budget-bounded) */
 dir("/src") { file }     /* Files in /src directory */
 ```
 
-**Default child types:** functions and modules.
 
 ### dir
 
@@ -496,35 +495,33 @@ dir("cmd")               /* Directories named "cmd" (leaf match) */
 dir("/src")              /* Exact path match for /src */
 dir select               /* All directories (budget-bounded) */
 dir("/") { file }        /* Files in root directory (no has needed) */
-dir("/") {}              /* Shows directories and files (default child types) */
+dir("/") {}              /* Everything under the root directory */
 ```
 
-**Default child types:** directories and files.
 
-### Default Type Inheritance
+### A type word and the scopes around it {#type-word-scope}
 
-At root level (no parent type selector), the default is **all types** — no filtering is applied. When a bare type selector is used, it sets default child types for its scope and **inherits** to all descendants:
-
-| Type Selector | Default Child Types | Inherits |
-|---------------|-------------------|----------|
-| *(root level)* | all types | — |
-| `func` | functions | yes |
-| `type` | types | yes |
-| `data` | data | yes |
-| `macro` | macros, functions | yes |
-| `field` / `method` | functions | yes |
-| `mod` | modules, functions | yes |
-| `file` | functions, modules | yes |
-| `dir` | directories, files | yes |
-
-Bare type selectors (without a name) inherit by default — their type filter propagates into all descendant scopes. Named type selectors like `func("foo")` do **not** inherit. Either default can be overridden with `inherit=`: `mod("x", inherit=true) { … }` carries a named selector into nested scopes, and `func(inherit=false) { … }` keeps a bare one to its own scope.
+**A type word filters the statement it is written in, and no other.**
 
 ```askl
-mod("mypackage") {}      /* Children include modules AND functions */
-mod("mypackage") { func }  /* Children explicitly filtered to functions only */
-dir("/") {}              /* Children include directories AND files */
-data { { "bar" } }       /* data filter inherits — inner scope also filters to data */
-data { any { "bar" } }   /* any removes inheritance — inner scope matches all types */
+func { "module_mutex" }    /* the functions that use module_mutex, whatever it is */
+"main" { func { } }        /* the functions main calls, and everything THEY use */
+mod("mypackage") { }       /* everything in the module */
+mod("mypackage") { func }  /* its functions */
+```
+
+In `func { "module_mutex" }` the word `func` is about the users. What is used
+may be a variable, a macro or a type, and is found by its name. Nothing is
+set for the child scope either: under any parent, a scope with no type word
+accepts every type.
+
+To carry a type into every scope below, ask for it with `inherit=true`. A
+scope that writes its own type replaces the inherited one from there down,
+and bare `any` removes it:
+
+```askl
+data(inherit=true) { { "bar" } }        /* both inner scopes are data too */
+data(inherit=true) { any { "bar" } }    /* any stops it: the inner scopes match all types */
 ```
 
 ### Scopes without a relationship modifier
@@ -738,19 +735,15 @@ nested { "data_d" }     /* func_a */
 ### any (Any Symbol Type)
 
 `any` is the type verb that constrains **no** type. It behaves exactly like
-`func`, `data` or `mod` — the same two forms, the same inheritance — except that
-the type it asks for is "all of them".
+`func`, `data` or `mod` — the same two forms — except that the type it asks
+for is "all of them".
 
-**Bare `any`** is a filter, and its job is to cancel an inherited one:
+**Bare `any`** is a filter. A scope with no type word already accepts every
+type, so its one job is to cancel a type that `inherit=true` carried down:
 
 ```askl
-data { any { "bar" } }     /* Inner scope matches all types, not just data */
-func("main") { any }       /* Everything main references, not just functions */
+data(inherit=true) { any { "bar" } }   /* Inner scopes match all types, not just data */
 ```
-
-Without it, a bare type selector like `data` inherits its type filter to every
-descendant. A scope under `any` is unconstrained, so a plain `{ }` beneath it
-stays unconstrained too.
 
 **`any("name")`** is a selector, and matches that name at whatever type carries
 it — where `func("ioctl")` finds only the function, `any("ioctl")` also finds
@@ -759,7 +752,7 @@ the macro and the struct:
 ```askl
 any("ioctl")               /* the name, at every type */
 any(g"ioctl_*")            /* globs work here as anywhere else */
-func { any { func "bar" } } /* `any` as an intermediate hop */
+func { { func "bar" } }     /* an untyped intermediate hop needs no `any` */
 ```
 
 > **Note:** bare `any` denotes the whole index, so — like bare `func` — it is a
@@ -931,7 +924,7 @@ is how a single query spans two projects:
 
 ```askl
 preamble project("ucx")
-dir("cuda_ipc") { func { any g"cuMemcpy*" } }
+dir("cuda_ipc") { func { g"cuMemcpy*" } }
 
 preamble project("linux")              /* everything below is Linux */
 "drm_xe_vm_bind"
@@ -1334,10 +1327,14 @@ the engine could not even enumerate everything that matches — the result
 carries the warning:
 
 ```text
-too many results: this part of the graph is incomplete. Narrow it with
-a name or glob, a type filter, `ignore(...)`, `project(...)`, or fewer
-hops
+too many results in `{ "printk" }`: this part of the graph is incomplete.
+Narrow it with a name or glob, a type filter, `ignore(...)`,
+`project(...)`, or fewer hops
 ```
+
+The warning quotes the statement it is about; a query can earn several.
+The response is then marked `incomplete`, and every count in it is a lower
+bound: the report prints "101 of at least 916 symbols", never "of 916".
 
 This is stronger than budget truncation: the symbol set itself may be
 missing entries, and a capped statement's partial answer is never used
