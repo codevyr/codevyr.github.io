@@ -64,6 +64,8 @@ at the risk of hitting the 1 MB response ceiling on hub-heavy queries.
                                        // incomplete" (see below)
   "truncated": true,                   // some command hit its `limit`
   "total_symbols": 906,                // distinct symbols before capping
+  "incomplete": true,                  // a read was cut: 906 is a lower bound
+                                       // (the field is absent when false)
   "edges_truncated": ["12890223412"]   // node ids whose out-edge listing was
                                        // capped — fetch the rest per node
 }
@@ -75,6 +77,12 @@ Field notes:
   command; `truncated` is true when **any** command overflowed its
   budget. Within a command, the kept symbols are chosen
   deterministically by `(path, offset, id)`.
+- `incomplete` — a limit cut the answer while it was being computed, and
+  a warning says in which statement. The two flags are different facts.
+  `truncated` alone: every symbol was found, the response shows the first
+  of them, and a larger `limits(symbols=)` shows more. `incomplete`: the
+  rest were never read, `total_symbols` is how far the reading got, and
+  the fix is a narrower query.
 - `edges` — an edge is a relationship between two *symbols*; its call
   sites are detail nobody reads until the edge is opened, so `/query`
   ships one entry per pair with a count, and the
@@ -87,10 +95,17 @@ Field notes:
   declarations) come before directory-like ones (sentinel, containment);
   a truncated list never misrepresents what kind of symbol a node is.
   The [instances endpoint](#instances) pages the rest.
-- `warnings` — two kinds. A statement whose *discovery* read hit the
-  safety cap carries `too many results: this part of the graph is
-  incomplete`: the symbol set itself may be missing entries, and the fix
-  is a narrower query, not pagination. A statement whose leaf read
+- `warnings` — each has a `message` and the `location` of the statement
+  it is about. A selector that matched nothing may carry `suggestions`:
+  query text that would match, to type in its place — the same name under
+  the type it exists as (`data("module_mutex")`, `file("/src/a.c")`), or
+  the nearest existing names for a typo. `name_exists` says the name is
+  real and a filter or scope excluded it.
+
+  Two kinds say an answer was cut. A statement whose *discovery* read hit
+  the safety cap carries ``too many results in `<statement>`: this part of
+  the graph is incomplete``: the symbol set itself may be missing entries,
+  and the fix is a narrower query, not pagination. A statement whose leaf read
   stopped at the result budget instead (eight times its symbol limit)
   carries `results were bounded to N rows by the server result budget and
   may be incomplete — narrow the query or raise the request limit`. See

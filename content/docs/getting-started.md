@@ -138,11 +138,15 @@ Shows all `main` functions and what they call.
 
 ### 📊 Reading Results
 
-- **Nodes**: Represent matched functions
-- **Edges**: Show function calls (who calls whom)
-- **Warnings**: `too many results: this part of the graph is incomplete`
-  means a statement matched more than the engine would enumerate — narrow
-  it with a name, glob, type filter, `ignore(...)`, or `project(...)`
+- **Nodes**: The matched symbols — functions, and also types, fields,
+  variables, macros, files
+- **Edges**: A reference from one symbol to another. Between two functions
+  that is a call; a function also has edges to the types, fields, variables
+  and macros its body names
+- **Warnings**: ``too many results in `…`: this part of the graph is
+  incomplete`` means the quoted statement matched more than the engine
+  would enumerate — narrow it with a name, glob, type filter,
+  `ignore(...)`, or `project(...)`
 - **More references / More instances**: a node popup showing one of these
   sections means the node has more edges or file locations than one
   response carries — click to page them in; the graph itself is complete
@@ -167,7 +171,9 @@ response); a statement that overflows the engine's discovery cap also
 carries an "incomplete" warning telling you to narrow it
 
 **Q: My query returns nothing**
-A: Check if parent functions actually call child functions in scopes
+A: Read the warning: when the name exists under another type it offers the
+spelling that finds it (`Did you mean: file("main.c")?`). Otherwise check
+that the parent really refers to the child
 
 **Q: My query errors with "selects nothing … add an anchor"**
 A: A query made only of constraints (`func`, `project(...)`) cannot select
