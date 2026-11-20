@@ -30,6 +30,16 @@ curl -X POST 'http://localhost:3002/query' \
 | `projection` | `signature` | Markdown only: `names`, `signature`, or `body` — how much source rides along. |
 | `listing` | server `--listing-cap` (100) | Max rows in any single per-node listing: instances per node and distinct out-edges per node. `0` = uncapped. Overridden per command by the [`limits()`](/docs/syntax#result-limits) verb. |
 
+The markdown report prints each symbol as `label  (type)  path:line` and, under
+it, what it relates to: `→` for a reference and `▸` for containment, named in
+a legend line under `# Results`. A pair that is both, such as a file and a
+function it contains and calls into, is drawn `▸`. A symbol with several
+definitions (C has one `DEVICE_NAME` per driver, and one symbol for the name)
+is shown at the one nearest to whoever led to it, marked
+`(1 of 47 definitions)`: the definition in the file that refers to it, else
+the one sharing the most directories with that file. Where no file matches,
+nearest is a guess.
+
 `listing` is an *assembly* cap: it bounds what one response carries, never
 which symbols the query finds. Anything it trims is reported as truncated and
 can be fetched with the [references](#references) and [instances](#instances)
@@ -44,7 +54,18 @@ at the risk of hitting the 1 MB response ceiling on hub-heavy queries.
     {
       "id": "12890223412",            // symbol id, string-encoded
       "label": "amdgpu",
-      "symbol_instances": [ ... ],     // up to `listing` entries
+      "symbol_type": "Module",         // what the symbol is
+      "folded": false,                 // true: not listed by default
+      "symbol_instances": [            // up to `listing` entries
+        {
+          "id": "118670719",
+          "object_id": "1376505",      // the file: see `objects`
+          "instance_type": "definition",
+          "start_offset": 1614,        // bytes
+          "end_offset": 1702,
+          "line": 69                   // of `start_offset`, counted from 1
+        }, ...
+      ],
       "query_statements": [ ... ],     // which statements selected it
       "instances_truncated": true,     // instance list was capped
       "total_instances": 800           // exact count before capping
@@ -90,6 +111,14 @@ Field notes:
 - `edges_truncated` — symbols whose *distinct out-edge* listing was
   capped by `listing`. The [references endpoint](#references) pages every
   edge. Call sites are never capped.
+- `symbol_type` / `folded` — per node, from the symbol itself, so a node
+  that ships no instances still says what it is. `folded` marks a symbol a
+  macro generated for itself: it is [not listed by default](/docs/c-indexing/#folding),
+  and is in the answer because the query named it or asked for `unnest`.
+- `line` — per instance, the line `start_offset` is on: the number the
+  markdown report prints after the path. It is absent where the file's
+  content is not stored. Only this full answer carries it; the paged
+  listings give offsets.
 - `instances_truncated` / `total_instances` — per node. The kept
   instances are ordered so real code instances (definitions,
   declarations) come before directory-like ones (sentinel, containment);
@@ -125,6 +154,7 @@ The skeleton ships exactly that:
       "symbol_ids": [ ... ],     // the raw symbol id(s), for the detail endpoints
       "label": ...,
       "symbol_type": ...,        // "function", "module", ...
+      "folded": ...,             // not listed by default (macro-generated)
       "is_directory": ...,       // from the symbol type: module, directory, file
       "instance_count": ...,     // instances in THIS result — not a total
       "parent_symbol": ...,      // the containment context, or null
