@@ -319,7 +319,7 @@ them, from 3,090 macros, lead to symbols listed by default. On ucx it adds
 ### Where a reference sits {#reference-position}
 
 **A reference sits where its caller completed its name.** Usually that is the
-token that spells it. Three cases need saying:
+token that spells it. Four cases need saying:
 
 - *A name used as a value is a reference too* — `register_cb(handler)`,
   `return handler;`, `.open = my_open`, and `module_init(my_init)` where the
@@ -337,10 +337,42 @@ token that spells it. Three cases need saying:
   the list types `alpha`, but that names nothing until `ENTRY` is applied — the
   same list with another macro would declare, or stringify. So the reference
   sits on `ENTRY`, and the edge is `table -> handle_alpha`.
+- *What an `#include` inside a declaration brings in is read there.* The
+  kernel builds its system call dispatcher from a header of
+  `__SYSCALL(0, sys_read)` lines:
+
+  ```c
+  long x64_sys_call(const struct pt_regs *regs, unsigned int nr)
+  {
+          switch (nr) {
+          #include <asm/syscalls_64.h>
+          default: return __x64_sys_ni_syscall(regs);
+          }
+  }
+  ```
+
+  The text of those calls is in the header, and containment does not cross
+  files. So each reference read through the `#include` is recorded a second
+  time on the `#include` line, where the function contains it:
+  `x64_sys_call -> __x64_sys_read`, and the same for a table initialized this
+  way. The header keeps its own reference, and a header included by the
+  included one counts too. An `#include` at file scope adds nothing: a file is
+  not a declaration. Declarations the included text makes (the fields of a
+  struct whose body is an `#include`) stay instances of the header.
 
 A name written whole inside a `#define` body is that body's reference, once,
 however many places use the macro: each user reaches it through the macro, in
 two hops.
+
+**A `#define` body refers to a function-like macro only where it calls it or
+hands it on.** The preprocessor expands such a macro only where `(` follows
+its name, so `#define __printf(a, b) __attribute__((__format__(printf, a, b)))`
+uses no macro, whatever some file defines `printf(...)` to be. A body refers
+to one where it calls it, where the name ends the body (`#define alias
+printf`), where a parameter follows it and may supply the list (`TUPLE_0
+_tuple`), and where it is an argument of a macro or of a parameter, which may
+apply it (`EACH(ENTRY)`). A parameter is never the macro that shares its
+spelling: `#define SCALE(min, max)` does not refer to `min()`.
 
 ### Folding {#folding}
 
