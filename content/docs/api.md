@@ -31,9 +31,15 @@ curl -X POST 'http://localhost:3002/query' \
 | `listing` | server `--listing-cap` (100) | Max rows in any single per-node listing: instances per node and distinct out-edges per node. `0` = uncapped. Overridden per command by the [`limits()`](/docs/syntax#result-limits) verb. |
 
 The markdown report prints each symbol as `label  (type)  path:line` and, under
-it, what it relates to: `→` for a reference and `▸` for containment, named in
-a legend line under `# Results`. A pair that is both, such as a file and a
-function it contains and calls into, is drawn `▸`. A symbol with several
+it, what it relates to. A pair is drawn once, with every relationship it has,
+one mark each: `▸` contains, `→` refers to, `↦` declares (a macro and what its
+invocation declared), `⇢` holds (a dispatch slot and a function stored in it).
+A file and a function it contains and calls into is `▸,→`; the report does not
+pick one. The marks used are named in a legend line under `# Results`. Where
+the index states what a reference does, the words follow the type:
+`→ handler  (func, takes)`, from `calls`, `writes`, `takes` (a function's
+address) and `reads` (the value of data or of a field). No word means nothing
+is stated, not "not called". A symbol with several
 definitions (C has one `DEVICE_NAME` per driver, and one symbol for the name)
 is shown at the one nearest to whoever led to it, marked
 `(1 of 47 definitions)`: the definition in the file that refers to it, else
