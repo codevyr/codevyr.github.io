@@ -211,9 +211,11 @@ page that owns it.
 - **REFS**, **HAS** — the two edge kinds a nesting can ask for: a
   **REFS** edge is a reference (one symbol calls or uses another), a
   **HAS** edge is containment (a module contains a function). A scope
-  written `{ }` with no relationship modifier asks for either; `has`,
-  `refs` or `derive(type=…)` pin it. Which kind a nesting asks for is what its evidence
-  relation stands for. What *contains* what is not read off source
+  written `{ }` with no relationship word asks for either; the
+  [relationship words](/docs/syntax/#relationship-modifiers) narrow it —
+  `has` to containment, and `refs`, `declares`, `holds` and the role words
+  to the references that pass a test on what the reference is. Which edges
+  a nesting asks for is what its evidence relation stands for. What *contains* what is not read off source
   ranges — it cannot be, for anything a macro generates — but from a
   depth-first interval the indexer writes down
   ([Containment](/docs/design/containment)).

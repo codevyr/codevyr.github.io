@@ -47,12 +47,17 @@ merge**, not conjunction. The aspects:
 | Aspect | Verbs | Merge law | Inheritance |
 |---|---|---|---|
 | **predicate** | filters and anchors | this page | this page |
-| **relationship mode** | `has`, `refs`, `derive`, `unnest`, `nested` | override | own channel, as today |
+| **relationship** | `has`, `refs`, `declares`, `holds`, `calls`, `writes`, `takes` | one expression per statement | opt-in ([`inherit(relationship)`](/docs/syntax/#inherit)) |
+| **traversal mode** | `unnest`, `nested` | override | none |
 | **bindings** | `@x`, `@@x`, `#x`, `label` | accumulate | opt-in (`@@`) |
 | **execution environment** | `preamble`, `layer`, ephemeral verbs | own rules | own rules |
 
-The predicate is the only truth-valued aspect, and **boolean operators
-exist only inside it**. `not has` is a *type* error, not a syntax
+The predicate is the only truth-valued aspect, and **`and` and `not`
+exist only inside it**. The relationship aspect has an algebra of its own
+and a smaller one: its words join with `or`, the union of the edges they
+select, and with nothing else
+([Joining relationship words](/docs/syntax/#relationship-or)). The two never
+mix in one expression: `func or has` is a *type* error, not a syntax
 restriction — the same clause/expression distinction SQL draws between
 `WHERE` (boolean-composable) and `ORDER BY` (not), rendered on askl's
 flat surface. The cautionary precedent is find(1), which has the same
@@ -244,8 +249,8 @@ The grammar owns **shapes**; the builder owns **classes**. Verb names
 stay ordinary identifiers resolved by the dispatch table — no per-verb
 keywords in the grammar — mirroring the typed-string precedent: the
 grammar admits, the parser types, and errors still surface during
-parsing with proper spans ("`has` is a relationship verb and cannot
-appear in a filter expression").
+parsing with proper spans ("`func` is a type, `calls` a relationship:
+write them side by side: `func calls { … }`").
 
 ```pest
 // or/and/not reserved; guards so idents like `order` don't split.

@@ -39,7 +39,9 @@ pick one. The marks used are named in a legend line under `# Results`. Where
 the index states what a reference does, the words follow the type:
 `→ handler  (func, takes)`, from `calls`, `writes`, `takes` (a function's
 address) and `reads` (the value of data or of a field). No word means nothing
-is stated, not "not called". A symbol with several
+is stated, not "not called". The marks and the words are also what a query
+asks by: `has`, `refs`, `declares`, `holds`, `calls`, `writes`, `takes`
+([Relationship Words](/docs/syntax/#relationship-modifiers)). A symbol with several
 definitions (C has one `DEVICE_NAME` per driver, and one symbol for the name)
 is shown at the one nearest to whoever led to it, marked
 `(1 of 47 definitions)`: the definition in the file that refers to it, else
@@ -176,7 +178,7 @@ The skeleton ships exactly that:
 - There are no instances, no `objects` map and no `total_instances`: the
   [instances endpoint](#instances) returns the exact total when a node is
   opened, and every detail row carries its own path. On
-  `mod("amdgpu") { derive(type="has") func }` this took the response
+  `mod("amdgpu") { func }` this took the response
   from 160 KB to 50 KB.
 - A symbol under several containers renders as one node per containment
   context. The server does that split: such node ids are

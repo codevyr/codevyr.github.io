@@ -58,7 +58,11 @@ substatement also carries a **relationship** to its parent,
 **edge kinds**: \(\mathrm{REFS}\) is a reference edge, one symbol naming
 another; \(\mathrm{HAS}\) is a containment edge, one symbol enclosing
 another. The `{ }` default is both kinds, and an edge of either then
-counts.
+counts. A [relationship word](/docs/syntax/#relationship-modifiers) can
+narrow \(\mathrm{REFS}\) further, to the references that pass a test
+(ordinary, declaring, holding, or stating a role); the test travels with
+the edge kind into every read of that edge and changes nothing in the
+model.
 
 **Composition.** Execution does not return \(D(c)\); it returns the
 **selection** \(N_c \subseteq D(c)\), the fixpoint of the worklist

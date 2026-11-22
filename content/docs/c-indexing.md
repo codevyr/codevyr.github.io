@@ -278,6 +278,13 @@ UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_tag_send_nbx, (ep, buffer), ucp_ep_h ep, 
 The variable does not use the macro; the macro made the variable. So there is
 no `lock -> DEFINE_MUTEX`, and `macro("DEFINE_MUTEX") { }` lists the mutexes.
 
+In the query language this edge is the relationship `declares` (`↦` in the
+report), apart from what the macro's body names, which is `refs`:
+`macro("DEFINE_MUTEX") declares { data }` against `macro("DEFINE_MUTEX") refs
+{ }`. The indexer writes it as an ordinary reference for now, so today the
+default scope and `refs` list it and `declares` finds nothing; see
+[what today's indices state](/docs/syntax/#what-an-index-states).
+
 - **Where the reference is.** On the macro's name in its `#define`, one for
   each declaration. An invocation stays a reference to the macro; nothing is
   an instance of it.

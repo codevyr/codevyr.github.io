@@ -46,6 +46,13 @@ The indexer creates three kinds of records for each dispatch point:
 
 This creates a two-hop chain: caller &rarr; field &rarr; implementation.
 
+The two hops are two different relationships. The caller **calls** the slot: a
+reference whose token is the callee of a call. The slot **holds** the
+implementation: no token of the field's declaration names `my_read`, the
+assignment elsewhere put it there. The query language can ask for each
+([Asking by relationship](#asking-by-relationship)); a scope with no
+relationship word follows both, which is what the queries below rely on.
+
 ### Reference Chain
 
 Given this source layout:
@@ -112,13 +119,16 @@ type("file_operations") has { field }
 
 Returns all function pointer fields declared in `file_operations`. Works because a struct's fields sit inside it in the containment tree.
 
-### Who calls through a field? (reverse)
+### Who refers to a field? (reverse)
 
 ```askl
-{ field("file_operations.read") }
+func { field("file_operations.read") }
 ```
 
-Returns functions that reference `file_operations.read` — i.e., functions that call through the `read` dispatch point.
+Returns the functions that reference `file_operations.read`: the ones that call
+through the `read` dispatch point, and the ones that assign it
+(`ops->read = impl`, or an initializer inside a function). Telling the two
+apart is [asking by relationship](#asking-by-relationship).
 
 ### Combine with other verbs
 
@@ -133,6 +143,87 @@ func("vfs_read") {
 ```
 
 From `vfs_read`, through the `read` dispatch, find implementations and their callees — excluding test and mock code.
+
+## Asking by relationship {#asking-by-relationship}
+
+The queries above use the default scope, which accepts every relationship. The
+[relationship words](/docs/syntax/#relationship-modifiers) ask for one.
+
+> **Today's indices.** The words in this section need an index that states
+> what a reference does (`calls`, `writes`) and records what a slot `holds`.
+> No published index does yet: on the kernel today each query below answers
+> with a notice instead of symbols, quoted under it. The default-scope queries
+> above are the ones to use until the indexers write them
+> ([what today's indices state](/docs/syntax/#what-an-index-states)).
+
+### Who calls through a slot, and who assigns it
+
+```askl
+func calls { field("platform_driver.probe") }    /* who calls through the slot */
+func writes { field("platform_driver.probe") }   /* who assigns it */
+func { field("platform_driver.probe") }          /* both */
+```
+
+On the kernel the third lists seven functions: `platform_probe`, which calls
+through the slot, and six that assign it, among them
+`__platform_driver_probe`. The first two are meant to split that list. Today
+they say:
+
+```
+the `linux` index states no roles; `calls` cannot match there. `refs { … }` lists its references
+```
+
+A role that is not stated is unknown, never "no": a role word does not match a
+reference that says nothing about what it does, and the answer says what it
+passed over rather than coming back empty without a word.
+
+### What a slot holds
+
+```askl
+field("file_operations.read") holds { func }   /* the functions stored in the slot */
+method("Read") holds { func }                  /* Go: the methods that implement it */
+```
+
+`holds` is the slot's own relationship (`⇢` in the report), apart from
+`refs`: a field's declaration may also *name* things, such as the types in its
+signature, and `holds` leaves those out. Today:
+
+```
+the `linux` index has no `holds` rows: nothing in it records what a slot holds
+```
+
+Published indices record a stored function as an ordinary reference from the
+field for now, which is why `field("file_operations.read") { func }` and
+`refs { func }` list the implementations today. Once an index records `holds`,
+`refs` stops listing them and the default scope keeps listing them.
+
+### A call across an ops table
+
+**`calls` is literal.** `vfs_read` calls the slot `file_operations.read`. It
+does not call `my_read`, and `"vfs_read" calls { func }` will not list it. The
+functions behind the slot are one more hop, and the hop is written:
+
+```askl
+"vfs_read" calls { field holds { func } }   /* calls a slot; the slot holds a function */
+"vfs_read" calls { { func } }               /* a bare middle scope crosses the slot too */
+"vfs_read" { field { func } }               /* default scopes: the same chain, today */
+```
+
+When a role word finds nothing because the target sits behind a slot, the
+answer points at the hop. From the engine's test index:
+
+```
+nothing calls `"my_read"` directly; `slot` holds it (`⇢`): `calls { field holds { "my_read" } }` goes through the slot
+```
+
+The same from the caller's side: a listing that leaves a called slot out, such
+as `"via" { func }`, says which slots it passed over and gives the query that
+follows them
+([notices](/docs/syntax/#relationship-notices)):
+
+```
+`func` passed over 1 slot that `"via"` calls through: `slot`; follow it: `"via" calls { field holds { func } }`
+```
 
 ## Go Interface Methods
 
