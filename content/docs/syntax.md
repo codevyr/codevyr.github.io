@@ -682,9 +682,10 @@ A role word narrows `refs`: it never matches containment, a `declares` or a
 
 - **An unstated role is unknown, never "no".** A reference that states nothing
   is matched by no role word. An index written before roles existed states
-  nothing at all; in an index that does state them, a name in a `#define`
-  body, a macro invocation and a type named in a declaration still state
-  nothing. Invoking a function-like macro is not a call. The answer says what
+  nothing at all; in an index that does state them, some references still
+  state nothing, for example a type named in a declaration, a macro
+  invocation, or a name in a `#define` body that was only read as text.
+  Invoking a function-like macro is not a call. The answer says what
   it passed over ([notices](#relationship-notices)), and `refs` lists
   everything.
 - **`calls` is literal.** `vfs_read` calls the slot `file_operations.read`;
@@ -773,7 +774,7 @@ are quoted from the engine's test index, with its names.
 roles, some references still state none. `"caller" calls { }`:
 
 ```
-`calls` passed over 2 symbols that `"caller"` names without stating a role (`#define` bodies, macro uses): `maybe`, `plain`. Whether it calls them is not known; `refs { … }` lists them
+`calls` passed over 2 symbols that `"caller"` names without stating a role: `maybe`, `plain`. Whether it calls them is not known; `refs { … }` lists them
 ```
 
 It counts distinct symbols, names up to three, and counts only function,
