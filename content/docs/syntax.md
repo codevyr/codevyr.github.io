@@ -82,28 +82,29 @@ A type says what a symbol *is*, not where it sits. Which symbol **contains** whi
 
 ### 3. Relationships
 
-A scope asks for one of two edge kinds between a parent and its children:
+A scope asks how a parent and its children are related. There are four
+relationships, one for each mark the report draws, and no edge is two of them:
 
-#### Reference Relationships (`refs`)
-
-What symbols **call** or **reference** each other.
-
-```askl
-"foo" refs { "bar" }   /* bar, if foo references it */
-```
-
-#### Containment Relationships (`has`)
-
-What symbols **contain** other symbols, read from the indexer's containment tree.
+| Word | Mark | The parent… |
+|------|------|-------------|
+| `has` | `▸` | **contains** the child, in the indexer's containment tree |
+| `refs` | `→` | **refers to** the child: a token of the parent names it |
+| `declares` | `↦` | **declares** the child: an invocation of the macro declared it |
+| `holds` | `⇢` | **holds** the child: a slot (a struct field, an interface method) and a function stored in it |
 
 ```askl
+"foo" refs { "bar" }               /* bar, if foo references it */
 mod("mypackage") has { func }      /* Functions contained in module */
-file("/main.go") has { "handler" } /* handler, if main.go declares it */
+file("/main.go") has { "handler" } /* handler, if main.go contains it */
 ```
 
-#### The default is either {#default-relationship}
+Three more words narrow `refs` to the references that say what they do to
+their target: `calls`, `writes` and `takes` (also spelled `reads`). All of them
+are described under [Relationship Words](#relationship-modifiers).
 
-A scope with no `has`, `refs` or `derive(...)` on it accepts **either** kind: `"foo" { "bar" }` keeps `bar` whether `foo` references it or contains it. That is why `mod("pkg") { func }` and `file("/main.go") { "handler" }` work without `has`, and why `"foo" { "bar" }` reads as "foo calls bar" when both are functions, which cannot contain one another. Once `has` or `refs` is written it inherits into nested scopes until the other is written ([Relationship Modifiers](#relationship-modifiers)). Type selectors — `func`, `mod`, `file`, … — never change the relationship; they only constrain the symbol type.
+#### The default is all four {#default-relationship}
+
+A scope with no relationship word on it accepts **any** of the four: `"foo" { "bar" }` keeps `bar` whether `foo` references it, contains it, declares it or holds it. That is why `mod("pkg") { func }` and `file("/main.go") { "handler" }` work without `has`, and why `"foo" { "bar" }` reads as "foo calls bar" when both are functions, which cannot contain one another. A word governs the statement it is written in and no other: the scopes nested below go back to the default unless [`inherit(relationship)`](#inherit) carries the word down. Type selectors — `func`, `mod`, `file`, … — never change the relationship; they only constrain the symbol type.
 
 ### 4. Pattern Matching
 
@@ -215,7 +216,7 @@ written before argument types existed need the quotes removed from `limit`,
 
 Which type an argument takes follows what it means, not what it looks like.
 `case="smart"` stays a string because it is one of three named modes, not a
-yes/no; `derive(type="refs,has")` stays a string because it is a list.
+yes/no.
 
 Literals belong in argument position only. A bare `42` or `true` at the start
 of a statement is not a selector — to name a symbol called `42`, quote it:
@@ -289,7 +290,7 @@ own and is rejected with a hint instead of silently returning an empty result.
 | `mod` (no name) | Only include module symbols |
 | `file` (no name) | Only include file symbols |
 | `dir` (no name) | Only include directory symbols |
-| `any` (no name) | Include every symbol type (removes a type carried down with `inherit=true`) |
+| `any` (no name) | Include every symbol type (removes a type carried down with `inherit(type)`) |
 
 > **Note:** Type selectors like `func` behave differently based on arguments:
 > - Without a name (`func`) → **Filter**: constrains the statement it is written in to that type, and no other statement
@@ -310,10 +311,13 @@ own and is rejected with a hint instead of silently returning an empty result.
 
 | Verb | Description |
 |------|-------------|
-| `has` | Use containment relationships instead of references |
-| `refs` | Use reference relationships (default) |
-| `derive(type="...")` | Set relationship type with options |
-| `preamble` | Apply subsequent verbs to the global scope |
+| `has` | The scope asks for containment (`▸`) |
+| `refs` | The scope asks for ordinary references (`→`) |
+| `declares` | The scope asks for what a macro's invocations declared (`↦`) |
+| `holds` | The scope asks for what a slot holds (`⇢`) |
+| `calls`, `writes`, `takes` / `reads` | `refs`, narrowed to the references that state that role |
+| `inherit(relationship)`, `inherit(type)` | Carry the statement's relationship, or its type, into the scopes below |
+| `preamble` | Apply subsequent verbs to every statement that follows |
 | `label("name")` / `@name` | Label this statement for reuse |
 | `unnest` | List every descendant, folded symbols included |
 | `nested` | List exactly one structural level |
@@ -349,11 +353,17 @@ statement; newlines are allowed inside parentheses.
 **What may appear in an expression.** Predicate verbs only: name patterns,
 type selectors (bare or named), `project(...)`, `package(...)`,
 `filter(...)`, `ignore(...)`. Everything else is rejected with a hint:
-relationship verbs (`has`, `refs`, `derive`, `unnest`, `nested`) and labels are not
+traversal modes (`unnest`, `nested`), `inherit(...)` and labels are not
 predicates; `search(...)`, `loc(...)`, layer literals, and `!"..."` are
 not a single predicate query; bare `any` and `select` constrain nothing.
 Inside an expression a verb contributes only its predicate — `file or dir
 { … }` does not switch the scope to containment; write `has` explicitly.
+
+**Relationship words are an expression of their own.** `has`, `refs`,
+`declares`, `holds` and the role words join with each other, with `or` and
+parentheses only (`calls or holds { … }`), and never with a predicate: `func
+or has` is an error that says to write them side by side. See
+[Joining relationship words](#relationship-or).
 
 **Three rules keep expressions predictable:**
 
@@ -458,8 +468,14 @@ field("file_operations.read")      /* Precise match */
 method("Read")                     /* Interface methods matching "Read" (Go) */
 func("vfs_read") { field("read") { func } }  /* Full dispatch chain */
 type("file_operations") has { field }         /* All fields of a struct */
-{ field("file_operations.read") }             /* Who calls through this field? */
+{ field("file_operations.read") }             /* Everything that refers to the field: its callers and its assigners */
+calls { field("file_operations.read") }       /* Only who calls through it */
+field("file_operations.read") holds { func }  /* Only the functions stored in it */
 ```
+
+The last two ask by [relationship](#relationship-modifiers), and need an index
+that states roles and records `holds`
+([what today's indices state](#what-an-index-states)).
 
 
 ### mod
@@ -515,18 +531,18 @@ may be a variable, a macro or a type, and is found by its name. Nothing is
 set for the child scope either: under any parent, a scope with no type word
 accepts every type.
 
-To carry a type into every scope below, ask for it with `inherit=true`. A
-scope that writes its own type replaces the inherited one from there down,
-and bare `any` removes it:
+To carry a type into every scope below, ask for it with
+[`inherit(type)`](#inherit) on the same statement. A scope that writes its own
+type replaces the inherited one from there down, and bare `any` removes it:
 
 ```askl
-data(inherit=true) { { "bar" } }        /* both inner scopes are data too */
-data(inherit=true) { any { "bar" } }    /* any stops it: the inner scopes match all types */
+data inherit(type) { { "bar" } }        /* both inner scopes are data too */
+data inherit(type) { any { "bar" } }    /* any stops it: the inner scopes match all types */
 ```
 
-### Scopes without a relationship modifier
+### Scopes without a relationship word
 
-A scope that carries no `has`, `refs` or `derive(...)` — and inherits none from an enclosing scope — accepts either edge kind ([the default is either](#default-relationship)). Type selectors do not change that:
+A scope that carries no relationship word — and is handed none by an `inherit(relationship)` above it — accepts every relationship ([the default is all four](#default-relationship)). Type selectors do not change that:
 
 ```askl
 /* Files inside /src */
@@ -536,56 +552,287 @@ dir("/src") { file }
 mod("pkg") { func }
 mod("pkg") has { func }
 
-/* "bar" is kept if main references it or declares it — its callees, in practice */
+/* "bar" is kept if main references it or contains it — its callees, in practice */
 dir("/") { func("main") { "bar" } }
 
-/* Pin one kind where either would be ambiguous */
+/* Say which relationship each scope asks for, where the default would be ambiguous */
 mod("amdgpu") has { func refs { "drm_dev_enter" } }
 ```
 
-## Relationship Modifiers
+## Relationship Words {#relationship-modifiers}
 
-### refs (References)
+**A relationship word selects the edges drawn with its mark.** The report
+draws a pair of symbols once, with every relationship the pair has
+([reading the report](/docs/api/#query-parameters)); a relationship word asks
+for the pairs drawn with one of those marks.
 
-Pins the scope to reference edges. Inherits to all descendants until overridden.
+| Word | Mark | Selects |
+|------|------|---------|
+| `has` | `▸` | containment |
+| `refs` | `→` | ordinary references: a token of the parent names the child |
+| `declares` | `↦` | what the invocations of a macro declared |
+| `holds` | `⇢` | what a slot holds: the functions stored in a struct field, the implementations of an interface method |
+| `calls`, `writes`, `takes` (also spelled `reads`) | a word after the type | `refs`, narrowed to the references that state that role |
+
+The four relationships are disjoint — `refs` does not include what a macro
+declares or what a slot holds — and a scope with no word accepts all four
+([the default](#default-relationship)).
+
+**A word acts on the statement it is written in.** It describes the edge into
+that statement's braces, and it may stand anywhere among the statement's
+terms:
 
 ```askl
-"foo" refs { "bar" }  /* foo calls bar */
-"foo" { "bar" }       /* either kind — the same answer for two functions */
+func calls { "kfree" }     /* the functions that call kfree */
+calls func { "kfree" }     /* the same query: the order of terms means nothing */
+calls { "kfree" }          /* whoever calls kfree */
+"vfs_read" calls { }       /* what vfs_read calls */
 ```
 
-Use `refs` to override an inherited `has`:
+It reaches no further than those braces. A statement nested inside is back to
+the default unless it writes a word of its own, or
+[`inherit(relationship)`](#inherit) carries this one down. The words take no
+arguments.
+
+> **Today's indices.** No published index states what a reference does, and
+> none records `declares` or `holds` as relationships of their own yet. Until
+> the indexers write them, a role word answers "the index states no roles"
+> and `declares` and `holds` find nothing. See
+> [what today's indices state](#what-an-index-states) before relying on an
+> empty answer.
+
+### has (Containment)
+
+Selects containment: the parent contains the child.
+
+```askl
+mod("pkg") has { func }        /* Functions the module contains */
+file has { "foo" { "bar" } }   /* a file contains foo; the scope under foo is the default again */
+```
+
+Containment is read from the depth-first interval the indexer records for every declaration — not from byte ranges or symbol types, which cannot tell apart what a macro generates. See [Containment](/docs/design/containment/).
+
+### refs (Ordinary references)
+
+Selects the references a token makes: a call, a variable used, a type named in a declaration, a macro invoked.
+
+```askl
+"foo" refs { "bar" }  /* foo names bar */
+"foo" { "bar" }       /* any relationship — the same answer for two functions */
+```
+
+`refs` is one of four relationships, not "everything that is not containment":
+it leaves out what a macro declares and what a slot holds. Each scope says
+what it asks for:
 
 ```askl
 has { "foo" refs { "bar" } }
 /* foo found via containment, bar found via references */
 ```
 
-### has (Containment)
+### declares and holds {#declares-holds}
 
-Use containment-based relationships. Inherits to all descendants until overridden.
+Two relationships are recorded by no token of their source:
 
-```askl
-has { func }              /* Functions contained in parent */
-has { "foo" { "bar" } }   /* HAS propagates: bar also found via containment */
-```
-
-Containment is read from the depth-first interval the indexer records for every declaration — not from byte ranges or symbol types, which cannot tell apart what a macro generates. See [Containment](/docs/design/containment/).
-
-### derive (Relationship Configuration)
-
-Advanced relationship modifier with explicit control over type and inheritance.
+- **`declares`** — an invocation that supplies a declaration's name declares
+  it. `DEFINE_MUTEX(lock)` makes `DEFINE_MUTEX ↦ lock`
+  ([what a macro declared](/docs/c-indexing/#declares)).
+- **`holds`** — a dispatch slot and a function stored in it. `.read = my_read`
+  makes `file_operations.read ⇢ my_read`; a Go interface method holds the
+  methods that implement it ([dispatch](/docs/dispatch/)).
 
 ```askl
-derive(type="has")                  /* Same as has (inherits by default) */
-derive(type="refs")                 /* Same as refs (inherits by default) */
-derive(type="has,refs")             /* Both containment and references */
-derive(type="refs", inherit=false) /* REFS for this scope only, children reset to default */
+macro("DEFINE_MUTEX") declares { data }        /* what the macro generates */
+macro("DEFINE_MUTEX") refs { }                 /* what its body names */
+field("file_operations.read") holds { func }   /* the functions stored in the slot */
 ```
 
-**Parameters:**
-- `type`: Comma-separated relationship types (`"has"`, `"refs"`, or `"has,refs"`)
-- `inherit`: Whether children inherit this setting, a boolean (default: `true`)
+Only a macro declares and only a slot holds. Asked of anything else the scope
+is empty, and says why. `"vfs_read" holds { func }`:
+
+```
+`holds` related nothing: only a slot holds (a field, or an interface method), and `"vfs_read"` selects none
+```
+
+### Role words: calls, writes, takes {#role-words}
+
+A reference can state what its token does to the target. The report prints
+those words after the type (`→ handler  (func, takes)`), and the same words
+ask for them:
+
+| Word | The token… |
+|------|------------|
+| `calls` | is the callee of a call, including a call through a struct field |
+| `writes` | is assigned or initialised |
+| `takes` | is used without being called or written: a function's address passed, stored or returned |
+| `reads` | the same as `takes`, as it reads for data and fields: the value is used |
+
+`takes` and `reads` are one role with two spellings. One token can state
+several roles: `counter++` both writes and reads `counter`, and either word
+finds it.
+
+```askl
+func calls { field("platform_driver.probe") }    /* who calls through the slot */
+writes { field("platform_driver.probe") }        /* who assigns it */
+func takes { "my_handler" }                      /* who passes the function around */
+```
+
+A role word narrows `refs`: it never matches containment, a `declares` or a
+`holds`. Three laws keep its answers honest:
+
+- **An unstated role is unknown, never "no".** A reference that states nothing
+  is matched by no role word. An index written before roles existed states
+  nothing at all; in an index that does state them, a name in a `#define`
+  body, a macro invocation and a type named in a declaration still state
+  nothing. Invoking a function-like macro is not a call. The answer says what
+  it passed over ([notices](#relationship-notices)), and `refs` lists
+  everything.
+- **`calls` is literal.** `vfs_read` calls the slot `file_operations.read`;
+  it does not call `my_read`. The functions behind the slot are one more hop,
+  and the hop is written:
+
+  ```askl
+  "vfs_read" calls { field holds { func } }   /* across an ops table */
+  "vfs_read" calls { { func } }               /* a bare middle scope crosses it too */
+  ```
+
+- **A role is one role.** `writes { "hook" }` does not list a function that
+  only calls `hook`.
+
+### Joining relationship words: `or` {#relationship-or}
+
+**Relationship words join with `or`, and a pair matches if any of its edges
+does.** Parentheses group; there is nothing else to group with.
+
+```askl
+calls or has { "kfree_sensitive" }        /* whoever calls it or contains it */
+"vfs_read" calls or holds { func }
+"vfs_read" has or refs { }                /* what it contains or refers to */
+has or refs or declares or holds { "x" }  /* the default, spelled out */
+func or data calls or holds { "x" }       /* two expressions: a type group and a relationship group */
+```
+
+The last line is a type expression and a relationship expression side by
+side. They never mix inside one expression:
+
+```
+`func` is a type, `calls` a relationship: write them side by side: `func calls { … }`
+```
+
+**A statement says its relationship once.** Two relationship expressions in
+one statement — next to each other or apart — are an error, as two type words
+are:
+
+```
+join relationship words with `or`: `has or refs`
+```
+
+**`and` and `not` are not supported yet.** A pair of symbols can have several
+edges — a file contains a function *and* calls it — so "both" and "not" would
+have to be decided for the pair as a whole, which one test on one edge cannot
+do. They are refused with what to write instead:
+
+```
+`and` between relationships is not supported yet: `calls and writes` would have to be decided for the pair as a whole. Ask each in its own query.
+`not calls` is not supported yet: name what you want: `writes or takes`, `refs`, `declares`.
+```
+
+### What a word passed over: notices {#relationship-notices}
+
+**A word that passed over what the scope would otherwise have answered says
+so**, once per statement, in the response's warnings. The notices exist so
+that a short or empty answer is not read as a fact about the code.
+
+**The index states no roles.** A role word, in a project whose index states
+none. `func calls { field("platform_driver.probe") }` on the kernel today:
+
+```
+the `linux` index states no roles; `calls` cannot match there. `refs { … }` lists its references
+```
+
+**The index has no such rows.** `declares` or `holds`, asked of a macro or a
+slot, in a project whose index records neither.
+`macro("DEFINE_MUTEX") declares { data }` on the kernel today:
+
+```
+the `linux` index has no `declares` rows: nothing in it records what a macro declares
+```
+
+**Only a slot holds, only a macro declares.** Asked of something else:
+
+```
+`holds` related nothing: only a slot holds (a field, or an interface method), and `"vfs_read"` selects none
+`declares` related nothing: only a macro declares, and `field("file_operations.read")` selects none
+```
+
+The next four need an index that states roles or has `declares` and `holds`
+rows. No published index does yet ([below](#what-an-index-states)), so they
+are quoted from the engine's test index, with its names.
+
+**References that state no role were passed over.** In an index that states
+roles, some references still state none. `"caller" calls { }`:
+
+```
+`calls` passed over 2 symbols that `"caller"` names without stating a role (`#define` bodies, macro uses): `maybe`, `plain`. Whether it calls them is not known; `refs { … }` lists them
+```
+
+It counts distinct symbols, names up to three, and counts only function,
+field and data targets: for a type or a macro a missing role is not an
+omission.
+
+**A slot holds it.** A role word found nothing, and the target is stored in a
+slot. `calls { "my_read" }`:
+
+```
+nothing calls `"my_read"` directly; `slot` holds it (`⇢`): `calls { field holds { "my_read" } }` goes through the slot
+```
+
+**`refs` lists only ordinary references.** `refs` found nothing, and the pair
+is related by `holds` or `declares`. `field("slot") refs { "my_read" }`:
+
+```
+`refs` lists only ordinary references (`→`); `field("slot")` holds 1 symbol that `"my_read"` matches (`⇢`): `my_read`. `holds { … }` or `{ … }` lists it
+```
+
+**A listing passed over a slot.** This one is about a filter, not a
+relationship word. `"via" { func }` lists the functions `via` calls, and `via`
+also calls through a field, which `func` leaves out together with the
+functions stored in it:
+
+```
+`func` passed over 1 slot that `"via"` calls through: `slot`; follow it: `"via" calls { field holds { func } }`
+```
+
+The query it gives runs as written. It counts only slots that hold something
+the listing asks for and does not already list, and it is not said under
+`has`, `declares`, `holds`, `writes` or `takes`, where no call is asked for.
+
+Under an `or`, a notice is said of the words it is true of: `calls or refs`
+says nothing about unstated roles, because `refs` lists those references
+anyway.
+
+### What today's indices state {#what-an-index-states}
+
+What an index states is observed when it is uploaded, per project: whether any
+reference states a role, and whether it has `declares` or `holds` rows. **No
+published index has any of the three yet**, so today:
+
+- `calls`, `writes`, `takes` and `reads` match nothing, and say
+  ``the `linux` index states no roles``. Use `refs`, or the default scope, and
+  read the code for which reference is a call.
+- `declares` and `holds` find nothing, and say the index has no such rows.
+- What a macro declared and what a slot holds are still in the index, recorded
+  as ordinary references. So today `refs` and the default scope list them:
+  `macro("DEFINE_MUTEX") { data }` is the mutexes, and
+  `field("file_operations.read") { func }` the implementations.
+
+When an indexer starts writing these, the same queries change their answers
+without changing their text: the role words begin to match, `declares` and
+`holds` begin to list, and `refs` stops listing what a macro declared and
+what a slot holds (when that leaves a scope empty, the notice
+"`refs` lists only ordinary references" says so). **The default
+scope lists all four relationships before and after**, so a query written
+without a word keeps its answer.
 
 ### Traversal modes: `nested` and `unnest` {#traversal-modes}
 
@@ -711,6 +958,19 @@ macro("UCS_PROFILE_FUNC") { func }    /* the functions declared through it */
 macro("KHASH_INIT") { unnest }        /* including the ones nobody calls by name */
 ```
 
+The two kinds of edge a macro has are two relationships: what its invocations
+declared is [`declares`](#declares-holds), what its body names is `refs`. The
+default scope lists both.
+
+```askl
+macro("DEFINE_MUTEX") declares { data }   /* only what it declared */
+macro("DEFINE_MUTEX") refs { }            /* only what its body names */
+```
+
+Published indices record a declaration as an ordinary reference for now, so
+today the default scope is the one that lists the mutexes
+([what today's indices state](#what-an-index-states)).
+
 A macro that only declares a symbol *again* does not lead to it:
 `EXPORT_SYMBOL(foo)` has no edge to `foo`. A macro is one node, so a path
 through it joins invocations that have nothing to do with each other. See
@@ -763,10 +1023,10 @@ nested { "data_d" }     /* func_a */
 for is "all of them".
 
 **Bare `any`** is a filter. A scope with no type word already accepts every
-type, so its one job is to cancel a type that `inherit=true` carried down:
+type, so its one job is to cancel a type that `inherit(type)` carried down:
 
 ```askl
-data(inherit=true) { any { "bar" } }   /* Inner scopes match all types, not just data */
+data inherit(type) { any { "bar" } }   /* Inner scopes match all types, not just data */
 ```
 
 **`any("name")`** is a selector, and matches that name at whatever type carries
@@ -784,25 +1044,54 @@ func { { func "bar" } }     /* an untyped intermediate hop needs no `any` */
 > rejected by the [anchor rule](/docs/design/planning/#anchors). Use `any select`
 > to enumerate.
 
-### Relationship Inheritance
+### Carrying a word into nested scopes: `inherit` {#inherit}
 
-`has`, `refs`, and `derive` all inherit by default — their relationship type propagates to all descendants until explicitly overridden:
+**A word governs the statement it is written in; `inherit(kind)` carries it.**
+A relationship word describes the edge into its own statement's braces, and a
+type word filters its own statement. Neither reaches the scopes nested below
+unless the statement says so:
 
 ```askl
-has {              /* HAS for all descendants */
-    "foo" {        /* Still uses HAS (inherited) */
-        "bar"      /* Still uses HAS (inherited) */
-    }
-}
+file has { "foo" { "bar" } }
+/* the file contains foo; the scope under foo is the default: foo refers to bar, or contains it */
 
-has {              /* HAS for descendants */
-    "foo" refs {   /* Override to REFS for this scope and below */
-        "bar"      /* Uses REFS (inherited from refs override) */
-    }
-}
+file has inherit(relationship) { "foo" { "bar" } }
+/* has is asked under foo too: foo must contain bar */
+
+"a" calls inherit(relationship) { "b" { "c" { "d" } } }   /* a four-deep call chain */
+"a" calls { "b" calls { "c" calls { "d" } } }             /* the same, written out */
+
+data inherit(type) { { "bar" } }                          /* both inner scopes are data too */
 ```
 
-Type selectors (`func`, `mod`, `file`, …) take no part in it: they constrain the symbol type and leave the relationship as they found it. A scope with no modifier anywhere above it accepts either kind ([the default is either](#default-relationship)).
+- `inherit(relationship)` carries the statement's relationship — a word or an
+  `or` of them — into every scope below, **until a statement writes its own**.
+  That statement's word is then the one in force for its braces, and it is
+  carried further only if that statement says `inherit(relationship)` too.
+- `inherit(type)` carries the statement's type the same way: a type word, a
+  named type selector, `filter("type", …)` or a type group
+  (`func or method inherit(type)`).
+- Carrying both is two verbs:
+  `has inherit(relationship) data inherit(type) "x" { { } }`.
+- Like every term, `inherit(...)` acts on the statement it is written in and
+  may stand anywhere in it, before or after what it carries.
+- With nothing to carry it changes nothing: `"foo" inherit(type) { }` is
+  `"foo" { }`.
+- It copies words into braces that exist. It never adds a hop.
+- A [preamble](#preamble-carries) carries what it writes without being told
+  to.
+
+The kind is one of two bare words, and the errors name them:
+
+```
+`inherit` needs what to carry: write `inherit(relationship)` or `inherit(type)`
+`inherit` carries a statement's relationship or its type, not `expression`: write `inherit(relationship)` or `inherit(type)`
+the kind is a word, not a string: write `inherit(type)`
+`inherit` carries one kind: write `inherit(relationship) inherit(type)` to carry both
+```
+
+Traversal modes (`nested`, `unnest`) are not carried by either kind; they
+belong to the one statement they are written on.
 
 ## Generic Verbs
 
@@ -862,7 +1151,7 @@ filter("exact_name", "/src/main.go") /* Exact-name anchor */
 - `"compound_name"`: Filter by compound name pattern (token matching)
 - `"exact_name"`: Filter by exact symbol name
 
-**Parameters:** `inherit` — boolean, default `false`; `filter("type", "func", inherit=true) { … }` carries the constraint into nested scopes.
+**Parameters:** `inherit` — boolean, default `false`; `filter("compound_name", "main", inherit=true) { … }` carries the constraint into nested scopes. For a type filter, [`inherit(type)`](#inherit) beside it does the same.
 
 ### ignore (Symbol Filtering)
 
@@ -903,6 +1192,24 @@ their own rather than joining the directive:
 preamble ignore("builtin") ignore("test")
 ```
 
+#### A preamble carries what it writes {#preamble-carries}
+
+In a statement, a relationship word and a type word stay in that statement
+unless [`inherit(...)`](#inherit) carries them. A preamble is not a statement
+and has no braces of its own, so what it writes is written for **every
+statement after it, at every depth**, with no `inherit(...)`:
+
+```askl
+preamble has
+file("/main.go") { func { } }    /* both scopes ask for containment */
+
+preamble func
+"main" { { } }                   /* main's callees and theirs, functions only */
+```
+
+A statement that writes its own relationship or type replaces the preamble's
+from there down, exactly as it replaces one carried by `inherit(...)`.
+
 #### A preamble is a directive, not a statement
 
 A preamble configures the query; it never produces rows of its own. Three
@@ -910,7 +1217,7 @@ consequences follow, and each is an error rather than a silent surprise.
 
 **It takes constraints and directives, not selectors.** `project(...)`,
 `ignore(...)`, `filter(...)` — including the name filters, which scope every
-statement — bare type selectors and modifiers like `unnest` or `nested` all belong here. A
+statement — bare type selectors, relationship words and modifiers like `unnest` or `nested` all belong here. A
 selecting term does not: it would be applied to every statement rather than
 selecting anything of its own.
 
@@ -1221,6 +1528,35 @@ project("backend") mod("api") { func("Create") }
 ```askl
 preamble ignore("test") ignore("mock")
 "main" {{}}  /* Call graph excluding test/mock code */
+```
+
+### Asking by Relationship
+
+These ask for one [relationship](#relationship-modifiers) instead of all four.
+The ones with a role word, `declares` or `holds` need an index that records
+them; on [today's indices](#what-an-index-states) they answer with a notice
+that says so, and the default scope beside each is what lists the symbols now.
+
+```askl
+/* Who calls through a slot, and who assigns it */
+func calls { field("platform_driver.probe") }
+func writes { field("platform_driver.probe") }
+func { field("platform_driver.probe") }          /* today: both, together */
+
+/* What a macro declares, and what its body names */
+macro("DEFINE_MUTEX") declares { data }
+macro("DEFINE_MUTEX") refs { }
+macro("DEFINE_MUTEX") { data }                   /* today: the mutexes */
+
+/* A call across an ops table */
+"vfs_read" calls { field holds { func } }
+"vfs_read" { field { func } }                    /* today: the same chain */
+
+/* A call chain, four deep */
+"a" calls inherit(relationship) { "b" { "c" { "d" } } }
+
+/* Only the contents, at every level */
+file("/main.go") has inherit(relationship) { func { } }
 ```
 
 ## Scope Types

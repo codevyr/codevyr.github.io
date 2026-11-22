@@ -33,7 +33,11 @@ above is only the usual case; [Containment](/docs/design/containment/) has the
 model. `type("file_operations") has { field }` works because the struct's
 fields sit inside it in that tree.
 
-## Two Relationship Types
+## Containment and References
+
+A scope can ask for four relationships
+([Relationship Words](/docs/syntax/#relationship-modifiers)). This page is
+about the two that every index has: containment and references.
 
 ### References (`refs`)
 
@@ -52,16 +56,17 @@ mod("pkg") has { "handler" }   /* handler is IN pkg */
 file("/main.go") has { func }  /* Functions IN main.go */
 ```
 
-### The default: either
+### The default: any relationship
 
-A scope with no `has`, `refs` or `derive(...)` accepts either kind: `"foo" {
-"bar" }` keeps `bar` if `foo` references it or contains it, and
-`file("/main.go") { func }` finds the file's functions without `has`. Writing
-`has` or `refs` pins the kind, and the choice inherits into nested scopes.
+A scope with no relationship word accepts any of them: `"foo" { "bar" }` keeps
+`bar` if `foo` references it or contains it, and `file("/main.go") { func }`
+finds the file's functions without `has`. Writing `has` or `refs` says which
+one that scope asks for, and only that scope: the scopes nested below are back
+to the default ([Relationship Inheritance](#relationship-inheritance)).
 
 ## Containers need no `has`
 
-Because a bare scope accepts either kind, container selectors (`dir`, `file`,
+Because a bare scope accepts any relationship, container selectors (`dir`, `file`,
 `mod`) list their contents directly. Nothing is set implicitly, and type
 selectors never change the relationship:
 
@@ -171,7 +176,7 @@ Ask for functions related to the `amdgpu` module that call `drm_dev_enter`:
 mod("amdgpu") { func { "drm_dev_enter" } }
 ```
 
-With the default relationship (refs **or** has), the middle statement matches
+With the default relationship (any of them), the middle statement matches
 any function the module *references* — which pulls in DRM-core helpers that
 amdgpu merely calls or wires up, not functions amdgpu defines:
 
@@ -182,38 +187,50 @@ amdgpu merely calls or wires up, not functions amdgpu defines:
   a function-pointer reference is still a reference.
 
 To ask for functions **defined in** the module instead, make the outer
-relationship containment — and pin the inner one back to references, because
-relationship context flows inward and would otherwise ask for functions
-*containing* `drm_dev_enter`:
+relationship containment. Each scope says what it asks for, so the inner one
+is written as references:
 
 ```askl
 mod("amdgpu") has { func refs { "drm_dev_enter" } }
 ```
 
 This keeps only `amdgpu_*` functions whose bodies call `drm_dev_enter` and
-drops the two DRM-core helpers.
+drops the two DRM-core helpers. `has` is about the scope it is written on and
+no other: leaving `refs` out gives the same answer here, because a function
+cannot contain `drm_dev_enter`, and carrying `has` inward with
+`inherit(relationship)` would ask for functions *containing* it and find none.
 
 ## Relationship Inheritance
 
-`has`, `refs`, and `derive` all inherit by default — their relationship type propagates to all descendants until explicitly overridden.
+**A relationship word governs the statement it is written in;
+`inherit(relationship)` carries it** into every scope below, until a statement
+writes its own.
 
 ```askl
-has {              /* HAS for all descendants */
-    "foo" {        /* Still uses HAS (inherited) */
-        "bar"      /* Still uses HAS (inherited) */
+has {              /* HAS for this scope */
+    "foo" {        /* the default again: any relationship */
+        "bar"
     }
 }
 
-has {              /* HAS for descendants */
-    "foo" refs {   /* Override to REFS for this scope and below */
-        "bar"      /* Uses REFS */
+has inherit(relationship) {   /* HAS for this scope and the ones below */
+    "foo" {                   /* still HAS */
+        "bar"
+    }
+}
+
+has inherit(relationship) {   /* HAS for descendants */
+    "foo" refs {              /* this scope asks for REFS instead */
+        "bar"
     }
 }
 ```
 
 Type selectors (`func`, `mod`, `file`, …) take no part in it: they constrain
 the symbol type and leave the relationship as they found it. A scope with no
-modifier anywhere above it accepts either kind.
+word on it, and none carried down to it, accepts any relationship. The full
+rule, and `inherit(type)` for type words, is in the
+[Syntax Reference](/docs/syntax/#inherit).
 
 ### Nested Containment
 
@@ -232,7 +249,16 @@ This finds:
 2. Modules contained in that directory
 3. Functions named "handler" contained in those modules
 
-No explicit `has` needed — a bare scope accepts containment.
+No explicit `has` needed — a bare scope accepts containment. To ask for
+containment and nothing else at every level, carry the word:
+
+```askl
+dir("/src") has inherit(relationship) {
+    mod {
+        func("handler")
+    }
+}
+```
 
 ## Multi-Instance Symbols
 
@@ -276,7 +302,7 @@ Find external dependencies used by a module:
 mod("myapp") { func refs { mod("external") } }
 ```
 
-This finds functions in "myapp" that reference the "external" module. Note: `refs` pins the inner scope to references, so only calls are shown; a bare `{ }` would accept containment too.
+This finds functions in "myapp" that reference the "external" module. Note: `refs` makes the inner scope ask for references only; a bare `{ }` would accept containment too.
 
 ### Refactoring Support
 
