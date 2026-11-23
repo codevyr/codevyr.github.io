@@ -85,6 +85,8 @@ The indexer produces:
 
 The synthetic ref is placed at the field's declaration range in the header. Since the field's instance covers that same range, the ref is attributed to the field by offset containment.
 
+That range is the same for every function the field holds, so the ref also names where it was made so: its **witness** is the store itself, `.read = my_read` in `drivers/my.c`, with a count of how many stores put that function there. For a Go interface method the witness is the expression that hands the concrete value over (`&MyFile{}` below). The [edge occurrences endpoint](/docs/api/#edge-occurrences) returns it.
+
 ## Querying Dispatch Chains
 
 ### Find implementations of a field

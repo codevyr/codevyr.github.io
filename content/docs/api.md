@@ -316,6 +316,38 @@ curl 'http://localhost:3002/v1/edge/12890223412/12885652740/occurrences?limit=2'
 - Rows come in display order `(file, offset, ref id)`, so pages append
   contiguously. There is no count: the edge's `occurrence_count` in the
   `/query` response already is one.
+- `kinds` says what this occurrence does to the target, in the words a
+  query asks by: `calls`, `writes`, `takes`, `reads`, `declares`, `holds`.
+  The field is absent where the index states nothing.
+- `witness` says where a relation happened. A `declares` or `holds` row
+  lies on the declaration of its source: the field in its header, the
+  macro's name in its `#define`. That is the same place for every function
+  a slot holds, so the row also names one place in the code that made it
+  so, and how many there are:
+
+  ```text
+  {
+    "path": "/linux/include/linux/fs.h",           // the field `read`
+    "start_offset": 58801,
+    "end_offset": 58865,
+    "kinds": ["holds"],
+    "witness": {
+      "object_id": "...",
+      "path": "/linux/drivers/char/ipmi/bt-bmc.c", // `.read = bt_bmc_read`
+      "start_offset": 7135,
+      "end_offset": 7155,
+      "sites": 1
+    }, ...
+  }
+  ```
+
+  The witness is the first such place in file order (path, then offset)
+  and `sites` counts them all. In C it is the store (`.read = bt_bmc_read`)
+  or the macro invocation (`DEFINE_MUTEX(module_mutex)`); in Go, the
+  expression that hands a value over where the interface is expected
+  (`return &Job{}`). A reference has no `witness`: its own range is where
+  it happened. A relation from an index that names no place has none
+  either.
 
 ## Server configuration {#configuration}
 
