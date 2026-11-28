@@ -7,10 +7,10 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# Every job reads the repository and nothing else, unless it says otherwise.
+# Only the deploy job may publish to Pages.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: "pages"
@@ -19,6 +19,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,11 +28,27 @@ jobs:
           submodules: true          # fetch theme submodule if used
           fetch-depth: 0
 
+      # Hugo 0.170.0 dropped the extended edition and LibSass with it, so there
+      # is one archive and the theme's stylesheet needs Dart Sass on the PATH
+      # (next step). Raise the two versions together, and build the site
+      # locally with both before pinning them.
       - name: Setup Hugo
         uses: peaceiris/actions-hugo@v2
         with:
-          hugo-version: '0.168.0'   # 0.170.1 fails on the theme: "no Dart Sass binary found"
-          extended: true
+          hugo-version: '0.170.1'
+
+      - name: Install Dart Sass
+        env:
+          DART_SASS_VERSION: '1.108.2'
+          DART_SASS_SHA256: '32d2eb5b83cbc180fce9657ff3c57401a9006c59eccfe0bfdde0aa755a66d42f'
+        run: |
+          archive="dart-sass-${DART_SASS_VERSION}-linux-x64.tar.gz"
+          curl -fsSL -o "${RUNNER_TEMP}/${archive}" \
+            "https://github.com/sass/dart-sass/releases/download/${DART_SASS_VERSION}/${archive}"
+          echo "${DART_SASS_SHA256}  ${RUNNER_TEMP}/${archive}" | sha256sum --check --strict
+          mkdir -p "${HOME}/.local"
+          tar -C "${HOME}/.local" -xzf "${RUNNER_TEMP}/${archive}"
+          echo "${HOME}/.local/dart-sass" >> "${GITHUB_PATH}"
 
       # Optional: cache Hugo resources (faster builds)
       - name: Cache Hugo resources
@@ -52,6 +70,9 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
